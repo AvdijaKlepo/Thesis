@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Jadan AWS!</title>
+    <style>
+        :root {
+            --bg: #0b0f0e;
+            --panel: #111714;
+            --panel-border: #1f2b26;
+            --text: #d8e6df;
+            --muted: #7c9187;
+            --accent: #4ee1a0;
+            --accent-dim: #2a6e52;
+            --danger: #e15c4e;
+            --mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body.body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 20% 0%, rgba(78, 225, 160, 0.06), transparent 45%),
+                var(--bg);
+            color: var(--text);
+            font-family: var(--mono);
+            padding: 40px 24px 80px;
+        }
+
+        .title {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 40px;
+        }
+
+        .title h1 {
+            font-size: 1.9rem;
+            letter-spacing: 0.04em;
+            margin: 0;
+            color: var(--text);
+        }
+
+        .title h1::before {
+            content: "> ";
+            color: var(--accent);
+        }
+
+        .title::after {
+            content: "load balancer control · packet routing";
+            font-size: 0.75rem;
+            color: var(--muted);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .inputs {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            max-width: 1060px;
+            margin: 0 auto;
+        }
+
+        .inputs>div {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 20px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-width: 220px;
+            flex: 1 1 240px;
+            position: relative;
+        }
+
+        .inputs>div::before {
+            font-size: 0.65rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .inputs>div:nth-of-type(1)::before {
+            content: "worker pool";
+        }
+
+        .oha::before {
+            content: "load test (oha)";
+        }
+
+        .break-worker::before {
+            content: "fault injection";
+        }
+
+        .recover-worker::before {
+            content: "fault correction";
+        }
+
+        .oha {
+            flex-direction: column;
+        }
+
+        .oha>div {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+        }
+
+        input[type="text"] {
+            background: #0a0d0c;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            padding: 8px 10px;
+            width: 100%;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent);
+        }
+
+        .oha>div {
+            flex-direction: row-reverse;
+            justify-content: flex-end;
+        }
+
+        .oha label,
+        .break-worker label,
+        .recover-worker label,
+        .inputs>div:nth-of-type(1) label {
+            order: -1;
+        }
+
+        button {
+            background: var(--accent-dim);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 9px 14px;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        button:hover {
+            background: var(--accent);
+            color: #06120c;
+        }
+
+        button:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .break-worker button {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(225, 92, 78, 0.1);
+        }
+
+        .break-worker button:hover {
+            background: var(--danger);
+            color: #1a0c0a;
+        }
+
+        .algorithm-selection {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            max-width: 1000px;
+            margin: 48px auto 0;
+        }
+
+        .algorithm-selection img {
+            width: 200px;
+            height: 200px;
+            object-fit: contain;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 14px;
+            filter: saturate(0.85);
+            transition: border-color 0.15s ease, transform 0.15s ease;
+        }
+
+        .algorithm-selection img:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .algorithm-selection img:focus {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .algorithm-change {
+            display: flex;
+            justify-content: center;
+            padding-top: 50px;
+        }
+    </style>
+    <script>
+        let selcted_algorithm;
+        function runWorkers() {
+            // 1. Select the button element
+
+
+            let myVariable = document.getElementById('workers').value;
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.open("POST", "http://127.0.0.1:8000/start-workers");
+            xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+
+            const body = JSON.stringify({
+                count: myVariable
+            });
+            xhr.onload = () => {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    console.log(JSON.parse(xhr.responseText));
+                } else {
+                    console.log(`Error : ${xhr.status}`);
+                }
+
+            };
+            xhr.send(body);
+            //console.log(myVariable);
+
+
+            const input = document.getElementById('workers').value = '';
+
+
+        }
+
+        function runOha() {
+
+            let duration = document.getElementById('duration').value;
+            let concurrency = document.getElementById('concurrency').value;
+            const xhr = new XMLHttpRequest();
+
+            xhr.open("POST", "http://127.0.0.1:8000/start-oha");
+            xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+
+            const body = JSON.stringify({
+                concurrency: concurrency,
+                duration: duration
+            });
+            console.log(body);
+            xhr.onload = () => {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    console.log(JSON.parse(xhr.responseText));
+                } else {
+                    console.log(`Error : ${xhr.status}`);
+                }
+
+            };
+            xhr.send(body);
+
+        }
+        function getAlgorithm(element) {
+            selcted_algorithm = element.dataset.value;
+            console.log("value;:", selcted_algorithm);
+        }
+
+        function switch_algorithm() {
+
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.open("POST", "http://127.0.0.1:8000/switch-algorithm");
+            xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+
+            const body = JSON.stringify({
+                algorithm: selcted_algorithm
+            });
+            console.log(body);
+            xhr.onload = () => {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    console.log(JSON.parse(xhr.responseText));
+                } else {
+                    console.log(`Error : ${xhr.status}`);
+                }
+
+            };
+            xhr.send(body);
+
+
+        }
+
+        function break_backend() {
+            const xhr = new XMLHttpRequest();
+
+            let name = document.getElementById('brworker').value;
+
+            xhr.open("POST", "http://127.0.0.1:8000/break_backend");
+            xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+
+            const body = JSON.stringify({
+                name: name
+            });
+            console.log(body);
+            xhr.onload = () => {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    console.log(JSON.parse(xhr.responseText));
+                } else {
+                    console.log(`Error : ${xhr.status}`);
+                }
+
+            };
+            xhr.send(body);
+        }
+        function recover_backend() {
+            const xhr = new XMLHttpRequest();
+
+            let name = document.getElementById('rcworker').value;
+
+            xhr.open("POST", "http://127.0.0.1:8000/recover_backend");
+            xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
+
+            const body = JSON.stringify({
+                name: name
+            });
+            console.log(body);
+            xhr.onload = () => {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    console.log(JSON.parse(xhr.responseText));
+                } else {
+                    console.log(`Error : ${xhr.status}`);
+                }
+
+            };
+            xhr.send(body);
+        }
+
+
+
+
+
+
+
+
+
+    </script>
+</head>
+
+<body class="body">
+    <div class="title">
+        <h1>Algorithm Selection</h1>
+    </div>
+
+    <div class="inputs">
+        <div><input type="text" id="workers">
+            <label for="workers">Number of workers</label>
+            <button onclick="runWorkers()" id="workerButton">Run</button>
+        </div>
+
+        <div class="oha">
+            <div>
+                <input type="text" id="duration">
+                <label for="duration">Duration</label>
+            </div>
+
+            <input type="text" id="concurrency">
+            <label for="concurrency">Concurrency</label>
+            <button onclick="runOha()" id="ohaButton">Run Oha</button>
+        </div>
+
+        <div class="break-worker">
+            <input type="text" id="brworker">
+            <label for="brworker">Break a worker</label>
+            <button onclick="break_backend()">Break worker</button>
+
+        </div>
+        <div class="recover-worker">
+
+            <input type="text" id="rcworker">
+            <label for="brworker">Recover a worker</label>
+            <button onclick="recover_backend()">Recover a worker</button>
+        </div>
+
+    </div>
+    <br>
+    <div class="algorithm-selection" id="algorithm-selection">
+        <img tabindex="0" src="assets/roundrobin.png" data-value="round_robin" class="selectable-img"
+            onclick="getAlgorithm(this)" />
+        <img tabindex="1" src="assets/weightedroundrobin.png" data-value="weighted_round_robin" class="selectable-img"
+            onclick="getAlgorithm(this)" />
+        <img tabindex="2" src="assets/leastconnections.png" data-value="least_connections" class="selectable-img"
+            onclick="getAlgorithm(this)"/>
+        <img tabindex="3" src="assets/leastresponsetime.png" data-value="least_response_time" class="selectable-img"
+            onclick="getAlgorithm(this)" />
+
+
+    </div>
+    <div class="algorithm-change">
+
+        <button id="change-algorithm" onclick="switch_algorithm()">Change algorithm</button>
+    </div>
+</body>
+
+</html>
