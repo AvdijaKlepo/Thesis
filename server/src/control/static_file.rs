@@ -1,4 +1,4 @@
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{fs, io, path::{Component, Path, PathBuf}};
 
 
 
@@ -11,50 +11,82 @@ impl StaticFileHandler {
         Self { root: root.into() }
     }
 
-    pub fn serve(&self, request_path: &str) -> io::Result<Response> {
-        let (path, content_type) = self.resolve(request_path);
 
-        let file_path = self.root.join(path);
+    fn safe_path(&self, request_path: &str) -> Option<PathBuf> {
+    let path = request_path.trim_start_matches('/');
+
+    let mut result = PathBuf::new();
+
+    for component in PathBuf::from(path).components() {
+        match component {
+            Component::Normal(part) => {
+                result.push(part);
+            }
+
+            Component::CurDir => {}
+
+            Component::ParentDir => {
+                return None;
+            }
+
+            Component::RootDir | Component::Prefix(_) => {
+                return None;
+            }
+        }
+    }
+    Some(result)
+}
+
+    pub fn serve(&self, request_path: &str) -> io::Result<Response> {
+       
+
+        let relative_path = match self.safe_path(request_path) {
+            Some(path) => path,
+            None => return self.not_found(),
+        };
+
+        let file_path = self.root.join(relative_path);
 
         match fs::read(&file_path) {
-            Ok(contents) => Ok(Response::ok(content_type, contents)),
-            Err(error) if error.kind() ==io::ErrorKind::NotFound => {
-                let contents = fs::read(self.root.join("404.html"))?;
+            Ok(contents) => {
+                let content_type = content_type(
+                    file_path.to_string_lossy().as_ref()
+                );
 
-                Ok(Response::not_found(
-                    "text/html; charset=utf-8",
-                    contents
-                ))
+                Ok(Response::ok(content_type, contents))
+            }
+
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.not_found()
             }
             Err(error) => Err(error)
         }
     }
 
-    fn resolve(&self, request_path: &str) -> (PathBuf, &'static str) {
-        match request_path {
-            "/" => (
-                PathBuf::from("hello.html"),
-                "text/html; chartset=utf-8"
-            ),
+    fn resolve(&self, request_path: &str) -> Option<PathBuf> {
+        let path = match request_path {
+            "/" => "hello.html",
 
-            path if path.starts_with("/assets") => {
-                let asset_path = &path["/assets/".len()..];
-
-                (
-                    PathBuf::from("assets").join(asset_path),
-                    content_type(asset_path)
-                )
+            path if path.starts_with('/') => {
+                path.trim_start_matches('/')
             }
 
-            _ => (
-                PathBuf::from("404.html"),
-                "text/html; charset=utf-8"
-            )
-        }
+            _ => return None,
+        };
+
+        self.safe_path(path)
+    }
+
+    fn not_found(&self) -> io::Result<Response> {
+        let contents = fs::read(self.root.join("404.html"))?;
+
+        Ok(Response::not_found("text/html; charset=utf-8", contents))
     }
 
 
 }
+
+
 
 pub struct Response {
     status: &'static str,
@@ -107,5 +139,66 @@ fn content_type(path: &str) -> &'static str {
         Some("svg") => "image/svg+xml",
         Some("ico") => "image/x-icon",
         _ => "application/octet-stream",
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_resolves_to_hello_html() {
+        let handler = StaticFileHandler::new("web");
+
+        let path = handler.resolve("/").unwrap();
+
+        assert_eq!(path, PathBuf::from("hello.html"));
+    }
+
+    #[test]
+    fn asset_path_is_resolved() {
+        let handler = StaticFileHandler::new("web");
+
+        let path = handler
+            .resolve("/assets/roundrobin.png")
+            .unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("assets/roundrobin.png")
+        );
+    }
+
+    #[test]
+    fn parent_directory_is_rejected() {
+        let handler = StaticFileHandler::new("web");
+
+        assert!(handler.resolve("/../hello.html").is_none());
+    }
+
+    #[test]
+    fn nested_parent_directory_is_rejected() {
+        let handler = StaticFileHandler::new("web");
+
+        assert!(
+            handler
+                .resolve("/assets/../hello.html")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn unknown_path_is_not_rejected_as_invalid() {
+        let handler = StaticFileHandler::new("web");
+
+        let path = handler
+            .resolve("/does-not-exist.html")
+            .unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("does-not-exist.html")
+        );
     }
 }
