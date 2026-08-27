@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 arc-swap = "1.9.2"
+tiny_http = "0.12.0"

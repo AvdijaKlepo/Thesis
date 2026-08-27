@@ -1,19 +1,20 @@
-use std::{io::{self, Read, Write}, net::{TcpListener, TcpStream}, sync::Arc, time::Instant};
+use std::{io::{self, }, net::TcpListener, sync::Arc};
 
 use arc_swap::ArcSwap;
-use server::ThreadPool;
 
-use crate::{algorithms::LoadBalancer, proxy::connection::proxy_connections};
+
+use crate::{algorithms::algorithms::LoadBalancer, proxy::connection::proxy_connections, worker::ThreadPool};
 
 pub struct ProxyServer {
     address: String,
     pool: ThreadPool,
-    load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>
+    load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
+  
 }
 
 impl ProxyServer {
     pub fn new(address: impl Into<String>, pool_size: usize, load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>) -> Self {
-        Self { address: address.into(), pool: ThreadPool::new(pool_size), load_balancer }
+        Self { address: address.into(), pool: ThreadPool::new(pool_size), load_balancer}
     }
 
     pub fn run(&self) -> io::Result<()> {
@@ -29,6 +30,8 @@ impl ProxyServer {
                     self.pool.execute(move || {
                         proxy_connections(stream, &load_balancer);
                     });
+
+                    
                 }
 
                 Err(e) => {

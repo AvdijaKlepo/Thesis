@@ -111,7 +111,7 @@ async def start_workers(req: InstanceRequest):
 async def switch_algorithm(algorithm:AlgorithmSwitchRequest):
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            "http://127.0.0.1:7880/admin/algorithm",
+            "http://127.0.0.1:7880/algorithm",
             content=algorithm.algorithm,
             timeout=2.0,
             headers={"Content-Type": "text/plain"}

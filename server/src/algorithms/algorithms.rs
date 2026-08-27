@@ -1,27 +1,14 @@
-use std::{sync::{
-    Arc, Mutex, atomic::{AtomicU64, AtomicUsize, Ordering},
-}, time::Duration};
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
-#[derive(Clone)]
-pub struct Backend {
-    pub id: usize,
-    pub addr: String,
-    pub weight: u32,
-}
+use crate::{Backend, backend::backend_server::{BackendMetrics, Feedback}};
 
-pub struct BackendMetrics {
-    pub active_connections: AtomicUsize,
-    pub latency_us: AtomicU64,
-}
 
-impl BackendMetrics {
-    pub fn new() -> Self {
-        Self {
-            active_connections: AtomicUsize::new(0),
-            latency_us: AtomicU64::new(1000),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct BackendNode {
@@ -35,49 +22,36 @@ pub struct LatencyBalancer {
 pub fn default_backends() -> Vec<BackendNode> {
     let backends = vec![
         BackendNode {
-            backend : Backend { id: 1, addr: "127.0.0.1:8081".into(), weight: 3 },
-            metrics: Arc::new(BackendMetrics::new())
+            backend: Backend {
+                id: 1.to_string(),
+                address: "127.0.0.1:8081".into(),
+                weight: 3,
+            },
+            metrics: Arc::new(BackendMetrics::new()),
         },
-         BackendNode {
-            backend : Backend { id: 2, addr: "127.0.0.1:8082".into(), weight: 1 },
-            metrics: Arc::new(BackendMetrics::new())
-        },
-         BackendNode {
-            backend : Backend { id: 3, addr: "127.0.0.1:8083".into(), weight: 1 },
-            metrics: Arc::new(BackendMetrics::new())
-        }
-        /*
-        
         BackendNode {
-            id: 1,
-            addr: "127.0.0.1:9081".into(),
-            weight: 3,
+            backend: Backend {
+                id: 2.to_string(),
+                address: "127.0.0.1:8082".into(),
+                weight: 1,
+            },
+            metrics: Arc::new(BackendMetrics::new()),
         },
-        Backend {
-            id: 2,
-            addr: "127.0.0.1:9082".into(),
-            weight: 1,
+        BackendNode {
+            backend: Backend {
+                id: 3.to_string(),
+                address: "127.0.0.1:8083".into(),
+                weight: 1,
+            },
+            metrics: Arc::new(BackendMetrics::new()),
         },
-        Backend {
-            id: 3,
-            addr: "127.0.0.1:9083".into(),
-            weight: 1,
-        },
-         */
     ];
     backends
 }
 pub trait LoadBalancer: Send + Sync {
     fn next(&self) -> BackendNode;
 
-    fn release(
-        &self,
-        _backend: &BackendNode,
-        _latency: Duration,
-        _success: bool,
-    ) {
-        
-    }
+    fn release(&self, _backend: &BackendNode, _feedback: Feedback) {}
 }
 
 pub struct RoundRobin {
@@ -147,9 +121,8 @@ impl LoadBalancer for WeightedRoundRobin {
     }
 }
 
-
 pub struct LeastConnections {
-    backends: Vec<BackendNode>
+    backends: Vec<BackendNode>,
 }
 
 impl LeastConnections {
@@ -163,11 +136,7 @@ impl LoadBalancer for LeastConnections {
         let best = self
             .backends
             .iter()
-            .min_by_key(|b| {
-                b.metrics
-                    .active_connections
-                    .load(Ordering::Relaxed)
-            })
+            .min_by_key(|b| b.metrics.active_connections.load(Ordering::Relaxed))
             .unwrap();
 
         best.metrics
@@ -177,12 +146,7 @@ impl LoadBalancer for LeastConnections {
         best.clone()
     }
 
-    fn release(
-        &self,
-        backend: &BackendNode,
-        _latency: Duration,
-        _success: bool,
-    ) {
+    fn release(&self, backend: &BackendNode, feedback: Feedback) {
         backend
             .metrics
             .active_connections
@@ -192,36 +156,30 @@ impl LoadBalancer for LeastConnections {
 
 pub struct LeastResponseTime {
     backends: Vec<BackendNode>,
-    alpha: f64
+    alpha: f64,
 }
 
 impl LeastResponseTime {
     pub fn new(backends: Vec<BackendNode>) -> Self {
-        Self{
+        Self {
             backends,
-            alpha:0.2
+            alpha: 0.2,
         }
     }
 }
 
 impl LoadBalancer for LeastResponseTime {
     fn next(&self) -> BackendNode {
-         let best = self
+        let best = self
             .backends
             .iter()
             .min_by(|a, b| {
                 let a_latency = a.metrics.latency_us.load(Ordering::Relaxed);
                 let b_latency = b.metrics.latency_us.load(Ordering::Relaxed);
 
-                let a_connections = a
-                    .metrics
-                    .active_connections
-                    .load(Ordering::Relaxed);
+                let a_connections = a.metrics.active_connections.load(Ordering::Relaxed);
 
-                let b_connections = b
-                    .metrics
-                    .active_connections
-                    .load(Ordering::Relaxed);
+                let b_connections = b.metrics.active_connections.load(Ordering::Relaxed);
 
                 let a_score = a_latency.saturating_mul((a_connections + 1) as u64);
                 let b_score = b_latency.saturating_mul((b_connections + 1) as u64);
@@ -237,33 +195,23 @@ impl LoadBalancer for LeastResponseTime {
         best.clone()
     }
 
-    fn release(
-        &self,
-        backend: &BackendNode,
-        latency: Duration,
-        success: bool,
-    ) {
+    fn release(&self, backend: &BackendNode, feedback: Feedback) {
         backend
             .metrics
             .active_connections
             .fetch_sub(1, Ordering::Relaxed);
 
-        if !success {
+        if !feedback.success {
             return;
         }
 
-        let measured = latency.as_micros() as u64;
+        let measured = feedback.latency.as_micros() as u64;
 
-        let old = backend
-            .metrics
-            .latency_us
-            .load(Ordering::Relaxed);
+        let old = backend.metrics.latency_us.load(Ordering::Relaxed);
 
         let alpha = 0.2;
 
-        let new_latency =
-            ((1.0 - alpha) * old as f64
-                + alpha * measured as f64) as u64;
+        let new_latency = ((1.0 - alpha) * old as f64 + alpha * measured as f64) as u64;
 
         backend
             .metrics
