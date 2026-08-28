@@ -2,15 +2,18 @@ use std::{
     io::{Read, Write}, net::{TcpListener, TcpStream}, sync::{Arc, atomic::{AtomicBool, AtomicU64, AtomicUsize}}, time::Duration,
 };
 
+use serde::Serialize;
+
 use crate::worker::ThreadPool;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Backend {
     pub id: String,
     pub address: String,
     pub weight: usize
 }
 
+#[derive(Debug)]
 pub struct BackendMetrics {
     pub active_connections: AtomicUsize,
     pub latency_us: AtomicU64,

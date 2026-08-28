@@ -1,23 +1,23 @@
 use std::{
-    fs,
-    io::{self, BufRead, BufReader, BufWriter, Write},
-    net::{TcpListener, TcpStream},
-    path::PathBuf,
+    fs, io::{self, BufRead, BufReader, BufWriter, Write}, net::{TcpListener, TcpStream}, path::PathBuf, sync::Arc,
 };
 
-use crate::control::static_file::StaticFileHandler;
+use crate::{backend::registry::BackendRegistry, control::static_file::StaticFileHandler};
 
 pub struct ControlServer {
     address: String,
 
     static_files: StaticFileHandler,
+
+    registry: Arc<BackendRegistry>
 }
 
 impl ControlServer {
-    pub fn new(address: impl Into<String>, root: impl Into<PathBuf>) -> Self {
+    pub fn new(address: impl Into<String>, root: impl Into<PathBuf>, registry:Arc<BackendRegistry>) -> Self {
         Self {
             address: address.into(),
             static_files: StaticFileHandler::new(root),
+            registry
         }
     }
 

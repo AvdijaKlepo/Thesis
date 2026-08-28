@@ -12,23 +12,25 @@ fn main() {
 
     let registry = Arc::new(BackendRegistry::new());
 
-    for backend in default_backends() {
-        registry.add(backend.backend);
-    }
+
 
     let backends = registry.all();
     
     let lb_slot = Arc::new(ArcSwap::from_pointee(
     Box::new(RoundRobin::new(backends)) as Box<dyn LoadBalancer>,
 ));
+    let admin_registry = Arc::clone(&registry);
 
     let admin_slot: Arc<arc_swap::ArcSwapAny<Arc<Box<dyn LoadBalancer>>>> = Arc::clone(&lb_slot);
-    thread::spawn(move || create_server(admin_slot));
+    thread::spawn(move || create_server(admin_slot,admin_registry));
+
+
+    let control_registry = Arc::clone(&registry);
 
     let control_handle = thread::spawn(|| {
         let web_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
 
-        let server = ControlServer::new("127.0.0.1:7878", web_root);
+        let server = ControlServer::new("127.0.0.1:7878", web_root, control_registry);
 
         if let Err(e) = server.run() {
             eprintln!("Control server stopped: {e}");

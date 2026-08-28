@@ -2,14 +2,17 @@ use std::sync::{Arc, RwLock};
 
 use crate::{Backend, algorithms::algorithms::BackendNode, backend::{self, backend_server::BackendMetrics}};
 
+#[derive(Debug)]
 pub struct BackendRegistry {
     backends: RwLock<Vec<Backend>>
 }
+
 
 impl BackendRegistry {
     pub fn new() -> Self {
         Self { backends: RwLock::new(Vec::new()) }
     }
+    
 
     pub fn add(&self, backend: Backend) {
         let mut backends = self.backends.write().unwrap();
@@ -45,6 +48,17 @@ impl BackendRegistry {
         })
         .collect()
 }
+
+    pub fn next_id(&self) -> usize {
+        let backends = self.backends.read().unwrap();
+
+        backends
+            .iter()
+            .filter_map(|backend| backend.id.parse::<usize>().ok())
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
 }
 impl Default for BackendRegistry {
     fn default() -> Self {

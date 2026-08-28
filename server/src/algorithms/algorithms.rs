@@ -10,7 +10,7 @@ use crate::{Backend, backend::backend_server::{BackendMetrics, Feedback}};
 
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BackendNode {
     pub backend: Backend,
     pub metrics: Arc<BackendMetrics>,
