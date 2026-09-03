@@ -97,43 +97,7 @@ fn handle_requests(
     }
 }
 
-fn create_backend(registry: &BackendRegistry, id: String, address: String, weight: usize) {
-    /*
-    if request.method() != &tiny_http::Method::Post || amount <=0 {
-        let response = tiny_http::Response::from_string("The amount of backends must be higher then 0").with_status_code(400);
 
-        let _ = request.respond(response);
-        return;
-    }
-
-    let mut body = String::new();
-
-    if request.as_reader().read_to_string(&mut body).is_err() {
-        let response =
-            tiny_http::Response::from_string("Invalid request body").with_status_code(400);
-
-        let _ = request.respond(response);
-        return;
-    }
-
-    let backends = BackendRegistry::new();
-
-    let backend = Backend { id: 1.to_string(), address: "127.0.0.1:8081".to_string(), weight: 1 };
-
-    backends.add(backend);
-
-    let response = tiny_http::Response::from_string("created a new backend").with_status_code(200);
-
-    let _ = request.respond(response);
-     */
-
-    let backend = Backend {
-        id,
-        address,
-        weight,
-    };
-    registry.add(backend);
-}
 
 fn create_backends(registry: &BackendRegistry, count: usize) -> Vec<Backend> {
     println!("Registry contains: {:?}", registry.all());
@@ -156,6 +120,7 @@ println!("Next ID: {}", registry.next_id());
         created.push(backend);
         start_id+=1;
     }
+  
     created
 
 

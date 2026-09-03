@@ -145,7 +145,7 @@ pub fn proxy_connections(
         &backend,
         Feedback {
             latency,
-            success: false,
+            success: true,
         },
     );
 
