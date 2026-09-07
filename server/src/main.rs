@@ -2,7 +2,7 @@ use std::{sync::Arc, thread};
 
 use arc_swap::ArcSwap;
 use server::{
-    algorithms::{
+    Backend, algorithms::{
         algorithm_server::create_server,
         algorithms::{LoadBalancer, RoundRobin, default_backends},
     }, backend::registry::{self, BackendRegistry}, control::ControlServer, proxy::ProxyServer,
@@ -11,6 +11,31 @@ use server::{
 fn main() {
 
     let registry = Arc::new(BackendRegistry::new());
+
+    registry.add(
+    Backend {
+        id: "1".into(),
+        address: "127.0.0.1:5053".into(),
+        weight: 1,
+    }
+    .into()
+);
+registry.add(
+    Backend {
+        id: "2".into(),
+        address: "127.0.0.1:5054".into(),
+        weight: 3,
+    }
+    .into()
+);
+registry.add(
+    Backend {
+        id: "3".into(),
+        address: "127.0.0.1:5055".into(),
+        weight: 3,
+    }
+    .into()
+);
 
 
 

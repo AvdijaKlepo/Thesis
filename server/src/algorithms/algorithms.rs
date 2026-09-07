@@ -16,6 +16,29 @@ pub struct BackendNode {
     pub metrics: Arc<BackendMetrics>,
 }
 
+impl BackendNode {
+    pub fn new(backend: Backend) -> Self {
+        Self {
+            backend,
+            metrics: Arc::new(BackendMetrics::new()),
+        }
+    }
+}
+
+impl From<Backend> for BackendNode {
+    fn from(backend: Backend) -> Self {
+        Self::new(backend)
+    }
+}
+
+impl std::ops::Deref for BackendNode {
+    type Target = Backend;
+
+    fn deref(&self) -> &Self::Target {
+        &self.backend
+    }
+}
+
 pub struct LatencyBalancer {
     backends: Vec<BackendNode>,
 }

@@ -48,7 +48,7 @@ async def start_oha(req: OhaRequest):
     concurrency = req.concurrency
     duration = req.duration
 
-    bash_string = f"oha -z {duration}s -c {concurrency} http://127.0.0.1:7879"
+    bash_string = f"oha -z {duration}s -c {concurrency} http://localhost:7879/company"
 
 
     spawn_window_cmd = f'start cmd /k "{bash_string}"'

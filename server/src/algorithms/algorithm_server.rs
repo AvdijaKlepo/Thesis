@@ -9,7 +9,7 @@ use crate::{
     algorithms::{
         algorithms::{
             LeastConnections, LeastResponseTime, LoadBalancer, RoundRobin, WeightedRoundRobin,
-            default_backends,
+            default_backends, BackendNode,
         },
         create_load_balancer,
     },
@@ -111,12 +111,12 @@ println!("Next ID: {}", registry.next_id());
        
         let backend = Backend {
             id: (start_id).to_string(),
-            address: format!("127.0.0.1:{}", 8081 + start_id),
+            address: format!("127.0.0.1:{}", 5052 + start_id),
             weight: 1,
         };
       
 
-        registry.add(backend.clone());
+        registry.add(BackendNode::new(backend.clone()));
         created.push(backend);
         start_id+=1;
     }
