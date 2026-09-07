@@ -28,7 +28,12 @@ impl ProxyServer {
                     let load_balancer = Arc::clone(&self.load_balancer);
 
                     self.pool.execute(move || {
-                        proxy_connections(stream, &load_balancer);
+                        if let Some(result) = proxy_connections(stream, &load_balancer) {
+                            println!(
+                                "Proxy request finished: backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",
+                                result.backend_id, result.success, result.latency, result.bytes_sent, result.bytes_received
+                            );
+                        }
                     });
 
                     

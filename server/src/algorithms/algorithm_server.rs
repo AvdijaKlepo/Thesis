@@ -1,25 +1,16 @@
 use std::{error::Error, sync::Arc};
 
 use arc_swap::ArcSwap;
-use serde::Serialize;
 use tiny_http::Server;
 
 use crate::{
     Backend,
     algorithms::{
-        algorithms::{
-            LeastConnections, LeastResponseTime, LoadBalancer, RoundRobin, WeightedRoundRobin,
-            default_backends, BackendNode,
-        },
+        algorithms::{BackendNode, LoadBalancer},
         create_load_balancer,
     },
-    backend::{self, registry::BackendRegistry},
+    backend::registry::BackendRegistry,
 };
-
-#[derive(Serialize)]
-struct Response<T> {
-    items: Vec<T>
-}
 
 fn start_server_with_fallback(
     host: &str,
@@ -89,6 +80,14 @@ fn handle_requests(
             create_backends_endpoint(request, registry);
         }
 
+        (&tiny_http::Method::Get, "/backends") => {
+            get_backends_endpoint(request, registry);
+        }
+
+        (&tiny_http::Method::Get, "/metrics") => {
+            get_metrics_endpoint(request, registry);
+        }
+
         _ => {
             let response = tiny_http::Response::from_string("not found").with_status_code(404);
 
@@ -97,16 +96,54 @@ fn handle_requests(
     }
 }
 
+fn get_metrics_endpoint(request: tiny_http::Request, registry: Arc<BackendRegistry>) {
+    let summary = registry.metrics_summary();
+    let body = match serde_json::to_string(&summary) {
+        Ok(body) => body,
+        Err(_) => {
+            let response =
+                tiny_http::Response::from_string("Failed to serialize metrics").with_status_code(500);
+            let _ = request.respond(response);
+            return;
+        }
+    };
 
+    let response = tiny_http::Response::from_string(body)
+        .with_status_code(200)
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+        );
+    let _ = request.respond(response);
+}
+
+fn get_backends_endpoint(request: tiny_http::Request, registry: Arc<BackendRegistry>) {
+    let backends: Vec<Backend> = registry.all().into_iter().map(|n| n.backend).collect();
+    let body = match serde_json::to_string(&backends) {
+        Ok(body) => body,
+        Err(_) => {
+            let response =
+                tiny_http::Response::from_string("Failed to serialize backends").with_status_code(500);
+            let _ = request.respond(response);
+            return;
+        }
+    };
+
+    let response = tiny_http::Response::from_string(body)
+        .with_status_code(200)
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+        );
+    let _ = request.respond(response);
+}
 
 fn create_backends(registry: &BackendRegistry, count: usize) -> Vec<Backend> {
     println!("Registry contains: {:?}", registry.all());
-println!("Next ID: {}", registry.next_id());
+    println!("Next ID: {}", registry.next_id());
     let mut start_id = registry.next_id();
 
     let mut created = Vec::with_capacity(count);
 
-    for i in 0..count {
+    for _ in 0..count {
         
        
         let backend = Backend {

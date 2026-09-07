@@ -160,6 +160,15 @@ async def recover_backend(name:BreakRecoverInstance):
     async with httpx.AsyncClient() as client:
         resp =await client.post(f"http://127.0.0.1:8474/proxies/{name.name}", json={"enabled": True})
     return {"status":resp.status_code, "body":resp.text}
+
+
+@app.get("/metrics")
+async def get_metrics():
+    async with httpx.AsyncClient() as client:
+        resp = await client.get("http://127.0.0.1:7880/metrics", timeout=2.0)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Failed to fetch metrics")
+    return resp.json()
         
 
 

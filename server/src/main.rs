@@ -4,8 +4,8 @@ use arc_swap::ArcSwap;
 use server::{
     Backend, algorithms::{
         algorithm_server::create_server,
-        algorithms::{LoadBalancer, RoundRobin, default_backends},
-    }, backend::registry::{self, BackendRegistry}, control::ControlServer, proxy::ProxyServer,
+        algorithms::{LoadBalancer, RoundRobin},
+    }, backend::registry::BackendRegistry, control::ControlServer, proxy::ProxyServer,
 };
 
 fn main() {

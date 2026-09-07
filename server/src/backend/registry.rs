@@ -51,6 +51,27 @@ impl BackendRegistry {
             .unwrap_or(0)
             + 1
     }
+
+    pub fn metrics_summary(&self) -> Vec<BackendMetricsReport> {
+        let backends = self.backends.read().unwrap();
+        backends
+            .iter()
+            .map(|node| BackendMetricsReport {
+                id: node.backend.id.clone(),
+                address: node.backend.address.clone(),
+                weight: node.backend.weight,
+                metrics: node.metrics.snapshot(),
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BackendMetricsReport {
+    pub id: String,
+    pub address: String,
+    pub weight: usize,
+    pub metrics: crate::backend::backend_server::BackendMetricsSnapshot,
 }
 
 impl Default for BackendRegistry {
@@ -146,4 +167,20 @@ mod tests {
             42
         );
     }
+
+    #[test]
+    fn test_metrics_summary() {
+        let registry = BackendRegistry::new();
+        registry.add(backend_node("1", 8081));
+        registry.add(backend_node("2", 8082));
+
+        let summary = registry.metrics_summary();
+        assert_eq!(summary.len(), 2);
+        assert_eq!(summary[0].id, "1");
+        assert_eq!(summary[0].address, "127.0.0.1:8081");
+        assert_eq!(summary[0].metrics.active_connections, 0);
+        assert_eq!(summary[1].id, "2");
+        assert_eq!(summary[1].address, "127.0.0.1:8082");
+    }
 }
+

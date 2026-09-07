@@ -9,6 +9,41 @@ use arc_swap::ArcSwap;
 
 use crate::{algorithms::algorithms::LoadBalancer, backend::backend_server::Feedback};
 
+pub struct ActiveConnectionGuard {
+    metrics: Arc<crate::backend::backend_server::BackendMetrics>,
+    completed: bool,
+}
+
+impl ActiveConnectionGuard {
+    pub fn new(metrics: Arc<crate::backend::backend_server::BackendMetrics>) -> Self {
+        metrics.record_start();
+        Self {
+            metrics,
+            completed: false,
+        }
+    }
+
+    pub fn complete(mut self, feedback: &Feedback, bytes_sent: usize, bytes_received: usize) {
+        self.completed = true;
+        self.metrics.record_end(feedback, bytes_sent, bytes_received);
+    }
+}
+
+impl Drop for ActiveConnectionGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.metrics.record_end(
+                &Feedback {
+                    latency: Duration::ZERO,
+                    success: false,
+                },
+                0,
+                0,
+            );
+        }
+    }
+}
+
 pub fn proxy_connections(
     mut client: TcpStream,
     lb_slot: &Arc<ArcSwap<Box<dyn LoadBalancer>>>,
@@ -35,10 +70,13 @@ pub fn proxy_connections(
 
     let start = Instant::now();
     let backend = lb.next();
+    let guard = ActiveConnectionGuard::new(Arc::clone(&backend.metrics));
 
     println!(
-        "Selected backend {} at {}",
-        backend.backend.id, backend.backend.address
+        "Selected backend {} at {} (active connections: {})",
+        backend.backend.id,
+        backend.backend.address,
+        backend.metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed)
     );
 
     let mut upstream = match TcpStream::connect(&backend.backend.address) {
@@ -50,14 +88,13 @@ pub fn proxy_connections(
             );
 
             let latency = start.elapsed();
+            let feedback = Feedback {
+                latency,
+                success: false,
+            };
 
-            lb.release(
-                &backend,
-                Feedback {
-                    latency,
-                    success: false,
-                },
-            );
+            lb.release(&backend, feedback.clone());
+            guard.complete(&feedback, 0, 0);
 
             return Some(ProxyResult {
                 backend_id: backend.backend.id,
@@ -74,14 +111,13 @@ pub fn proxy_connections(
         eprintln!("Failed to send request to backend: {e}");
 
         let latency = start.elapsed();
+        let feedback = Feedback {
+            latency,
+            success: false,
+        };
 
-        lb.release(
-            &backend,
-            Feedback {
-                latency,
-                success: false,
-            },
-        );
+        lb.release(&backend, feedback.clone());
+        guard.complete(&feedback, upstream_req.len(), 0);
 
         return Some(ProxyResult {
             backend_id: backend.backend.id,
@@ -98,14 +134,13 @@ pub fn proxy_connections(
             eprintln!("Failed to read response from backend: {e}");
 
             let latency = start.elapsed();
+            let feedback = Feedback {
+                latency,
+                success: false,
+            };
 
-            lb.release(
-                &backend,
-                Feedback {
-                    latency,
-                    success: false,
-                },
-            );
+            lb.release(&backend, feedback.clone());
+            guard.complete(&feedback, upstream_req.len(), 0);
 
             return Some(ProxyResult {
                 backend_id: backend.backend.id,
@@ -121,14 +156,13 @@ pub fn proxy_connections(
         eprintln!("Empty response from backend");
 
         let latency = start.elapsed();
+        let feedback = Feedback {
+            latency,
+            success: false,
+        };
 
-        lb.release(
-            &backend,
-            Feedback {
-                latency,
-                success: false,
-            },
-        );
+        lb.release(&backend, feedback.clone());
+        guard.complete(&feedback, upstream_req.len(), 0);
 
         return Some(ProxyResult {
             backend_id: backend.backend.id,
@@ -147,14 +181,13 @@ pub fn proxy_connections(
         eprintln!("Failed to send response to client: {e}");
 
         let latency = start.elapsed();
+        let feedback = Feedback {
+            latency,
+            success: false,
+        };
 
-        lb.release(
-            &backend,
-            Feedback {
-                latency,
-                success: false,
-            },
-        );
+        lb.release(&backend, feedback.clone());
+        guard.complete(&feedback, upstream_req.len(), resp.len());
 
         return Some(ProxyResult {
             backend_id: backend.backend.id,
@@ -166,14 +199,13 @@ pub fn proxy_connections(
     }
 
     let latency = start.elapsed();
+    let feedback = Feedback {
+        latency,
+        success: true,
+    };
 
-    lb.release(
-        &backend,
-        Feedback {
-            latency,
-            success: true,
-        },
-    );
+    lb.release(&backend, feedback.clone());
+    guard.complete(&feedback, upstream_req.len(), resp.len());
 
     return Some(ProxyResult {
         backend_id: backend.backend.id,
@@ -448,5 +480,45 @@ mod tests {
         assert!(s.contains("Connection: close\r\n"));
         assert!(!s.contains("keep-alive"));
     }
+
+    #[test]
+    fn test_active_connection_guard_complete() {
+        let metrics = Arc::new(crate::backend::backend_server::BackendMetrics::new());
+        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+        let guard = ActiveConnectionGuard::new(Arc::clone(&metrics));
+        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        guard.complete(
+            &Feedback {
+                latency: Duration::from_millis(5),
+                success: true,
+            },
+            100,
+            200,
+        );
+
+        let snap = metrics.snapshot();
+        assert_eq!(snap.active_connections, 0);
+        assert_eq!(snap.successful_requests, 1);
+        assert_eq!(snap.failed_requests, 0);
+    }
+
+    #[test]
+    fn test_active_connection_guard_drop_on_error() {
+        let metrics = Arc::new(crate::backend::backend_server::BackendMetrics::new());
+        {
+            let _guard = ActiveConnectionGuard::new(Arc::clone(&metrics));
+            assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
+            // Dropped here without calling complete
+        }
+        let snap = metrics.snapshot();
+        assert_eq!(snap.active_connections, 0);
+        assert_eq!(snap.total_requests, 1);
+        assert_eq!(snap.successful_requests, 0);
+        assert_eq!(snap.failed_requests, 1);
+    }
 }
+
 

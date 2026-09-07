@@ -1,5 +1,8 @@
 use std::{
-    fs, io::{self, BufRead, BufReader, BufWriter, Write}, net::{TcpListener, TcpStream}, path::PathBuf, sync::Arc,
+    io::{self, BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    path::PathBuf,
+    sync::Arc,
 };
 
 use crate::{backend::registry::BackendRegistry, control::static_file::StaticFileHandler};
@@ -54,6 +57,18 @@ impl ControlServer {
         };
 
         let request_path = request_line.split_whitespace().nth(1).unwrap_or("/");
+
+        if request_path == "/metrics" || request_path == "/api/metrics" {
+            let summary = self.registry.metrics_summary();
+            let json = serde_json::to_string(&summary).unwrap_or_else(|_| "[]".into());
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                json.len(),
+                json
+            );
+            stream.write_all(resp.as_bytes())?;
+            return Ok(());
+        }
 
         let response = self.static_files.serve(request_path)?;
 

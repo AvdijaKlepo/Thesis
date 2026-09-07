@@ -1,9 +1,6 @@
-use std::{
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-    },
-    time::Duration,
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use crate::{Backend, backend::backend_server::{BackendMetrics, Feedback}};
@@ -162,32 +159,17 @@ impl LoadBalancer for LeastConnections {
             .min_by_key(|b| b.metrics.active_connections.load(Ordering::Relaxed))
             .unwrap();
 
-        best.metrics
-            .active_connections
-            .fetch_add(1, Ordering::Relaxed);
-
         best.clone()
-    }
-
-    fn release(&self, backend: &BackendNode, feedback: Feedback) {
-        backend
-            .metrics
-            .active_connections
-            .fetch_sub(1, Ordering::Relaxed);
     }
 }
 
 pub struct LeastResponseTime {
     backends: Vec<BackendNode>,
-    alpha: f64,
 }
 
 impl LeastResponseTime {
     pub fn new(backends: Vec<BackendNode>) -> Self {
-        Self {
-            backends,
-            alpha: 0.2,
-        }
+        Self { backends }
     }
 }
 
@@ -201,7 +183,6 @@ impl LoadBalancer for LeastResponseTime {
                 let b_latency = b.metrics.latency_us.load(Ordering::Relaxed);
 
                 let a_connections = a.metrics.active_connections.load(Ordering::Relaxed);
-
                 let b_connections = b.metrics.active_connections.load(Ordering::Relaxed);
 
                 let a_score = a_latency.saturating_mul((a_connections + 1) as u64);
@@ -211,34 +192,51 @@ impl LoadBalancer for LeastResponseTime {
             })
             .unwrap();
 
-        best.metrics
-            .active_connections
-            .fetch_add(1, Ordering::Relaxed);
-
         best.clone()
     }
+}
 
-    fn release(&self, backend: &BackendNode, feedback: Feedback) {
-        backend
-            .metrics
-            .active_connections
-            .fetch_sub(1, Ordering::Relaxed);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        if !feedback.success {
-            return;
-        }
+    fn test_node(id: &str, port: u16, weight: usize) -> BackendNode {
+        BackendNode::new(Backend {
+            id: id.into(),
+            address: format!("127.0.0.1:{port}"),
+            weight,
+        })
+    }
 
-        let measured = feedback.latency.as_micros() as u64;
+    #[test]
+    fn test_least_connections_selects_minimum() {
+        let n1 = test_node("1", 8081, 1);
+        let n2 = test_node("2", 8082, 1);
+        let n3 = test_node("3", 8083, 1);
 
-        let old = backend.metrics.latency_us.load(Ordering::Relaxed);
+        n1.metrics.active_connections.store(3, Ordering::Relaxed);
+        n2.metrics.active_connections.store(0, Ordering::Relaxed);
+        n3.metrics.active_connections.store(2, Ordering::Relaxed);
 
-        let alpha = 0.2;
+        let lb = LeastConnections::new(vec![n1.clone(), n2.clone(), n3.clone()]);
+        let selected = lb.next();
+        assert_eq!(selected.id, "2");
 
-        let new_latency = ((1.0 - alpha) * old as f64 + alpha * measured as f64) as u64;
+        // When node 2 gets more connections, node 3 should be selected next
+        n2.metrics.active_connections.store(4, Ordering::Relaxed);
+        let selected2 = lb.next();
+        assert_eq!(selected2.id, "3");
+    }
 
-        backend
-            .metrics
-            .latency_us
-            .store(new_latency.max(1), Ordering::Relaxed);
+    #[test]
+    fn test_round_robin() {
+        let n1 = test_node("1", 8081, 1);
+        let n2 = test_node("2", 8082, 1);
+        let lb = RoundRobin::new(vec![n1.clone(), n2.clone()]);
+
+        assert_eq!(lb.next().id, "1");
+        assert_eq!(lb.next().id, "2");
+        assert_eq!(lb.next().id, "1");
     }
 }
+
