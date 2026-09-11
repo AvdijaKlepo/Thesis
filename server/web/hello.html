@@ -105,6 +105,15 @@
             content: "fault correction";
         }
 
+        .runtime-mode::before {
+            content: "proxy runtime";
+        }
+
+        .runtime-btn-active {
+            background: var(--accent) !important;
+            color: #06120c !important;
+        }
+
         .oha {
             flex-direction: column;
         }
@@ -362,6 +371,82 @@
 
 
 
+        function updateRuntimeUI(runtime) {
+            const statusEl = document.getElementById('runtime-status');
+            const btnPool = document.getElementById('btn-threadpool');
+            const btnAsync = document.getElementById('btn-async');
+
+            if (runtime === 'async') {
+                if (statusEl) statusEl.textContent = 'Active: Tokio Async';
+                if (btnAsync) btnAsync.classList.add('runtime-btn-active');
+                if (btnPool) btnPool.classList.remove('runtime-btn-active');
+            } else {
+                if (statusEl) statusEl.textContent = 'Active: Thread Pool';
+                if (btnPool) btnPool.classList.add('runtime-btn-active');
+                if (btnAsync) btnAsync.classList.remove('runtime-btn-active');
+            }
+        }
+
+        function switchRuntime(mode) {
+            const body = JSON.stringify({ runtime: mode });
+
+            fetch("http://127.0.0.1:8000/switch-runtime", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: body
+            })
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return res.json();
+            })
+            .then(data => {
+                console.log("Switched runtime via 8000:", data);
+                updateRuntimeUI(mode);
+            })
+            .catch(err => {
+                console.log("Port 8000 failed, trying direct 7880...", err);
+                fetch("http://127.0.0.1:7880/runtime", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: body
+                })
+                .then(res => res.json())
+                .then(data => {
+                    console.log("Switched runtime via 7880:", data);
+                    updateRuntimeUI(mode);
+                })
+                .catch(e => {
+                    console.error("Failed to switch runtime:", e);
+                    alert("Failed to switch runtime: " + e.message);
+                });
+            });
+        }
+
+        function fetchCurrentRuntime() {
+            fetch("http://127.0.0.1:8000/runtime")
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.runtime) {
+                        updateRuntimeUI(data.runtime);
+                    }
+                })
+                .catch(() => {
+                    fetch("http://127.0.0.1:7880/runtime")
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.runtime) {
+                                updateRuntimeUI(data.runtime);
+                            }
+                        })
+                        .catch(() => {
+                            updateRuntimeUI('thread_pool');
+                        });
+                });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchCurrentRuntime();
+        });
     </script>
 </head>
 
@@ -398,6 +483,14 @@
             <input type="text" id="rcworker">
             <label for="brworker">Recover a worker</label>
             <button onclick="recover_backend()">Recover a worker</button>
+        </div>
+
+        <div class="runtime-mode">
+            <div id="runtime-status" style="font-size: 0.85rem; color: var(--accent); margin-bottom: 2px;">Active: Thread Pool</div>
+            <div style="display: flex; gap: 8px;">
+                <button type="button" id="btn-threadpool" class="runtime-btn-active" onclick="switchRuntime('thread_pool')" style="flex: 1;">Thread Pool</button>
+                <button type="button" id="btn-async" onclick="switchRuntime('async')" style="flex: 1;">Tokio Async</button>
+            </div>
         </div>
 
     </div>

@@ -9,3 +9,4 @@ pub use crate::backend::backend_server::Backend;
 pub use crate::backend::backend_server::BackendServer;
 
 pub use thread_pool::worker;
+pub use proxy::runtime::RuntimeMode;

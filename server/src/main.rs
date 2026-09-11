@@ -2,7 +2,7 @@ use std::{sync::Arc, thread};
 
 use arc_swap::ArcSwap;
 use server::{
-    Backend, algorithms::{
+    Backend, RuntimeMode, algorithms::{
         algorithm_server::create_server,
         algorithms::{LoadBalancer, RoundRobin},
     }, backend::registry::BackendRegistry, control::ControlServer, proxy::ProxyServer,
@@ -45,9 +45,11 @@ registry.add(
     Box::new(RoundRobin::new(backends)) as Box<dyn LoadBalancer>,
 ));
     let admin_registry = Arc::clone(&registry);
+    let runtime_mode = Arc::new(ArcSwap::from_pointee(RuntimeMode::ThreadPool));
 
     let admin_slot: Arc<arc_swap::ArcSwapAny<Arc<Box<dyn LoadBalancer>>>> = Arc::clone(&lb_slot);
-    thread::spawn(move || create_server(admin_slot,admin_registry));
+    let admin_runtime_mode = Arc::clone(&runtime_mode);
+    thread::spawn(move || create_server(admin_slot, admin_registry, admin_runtime_mode));
 
 
     let control_registry = Arc::clone(&registry);
@@ -62,7 +64,7 @@ registry.add(
         }
     });
 
-    let proxy_server = ProxyServer::new("127.0.0.1:7879", 8, Arc::clone(&lb_slot));
+    let proxy_server = ProxyServer::new("127.0.0.1:7879", 8, Arc::clone(&runtime_mode), Arc::clone(&lb_slot));
 
     let proxy_handle = thread::spawn(move || {
         if let Err(e) = proxy_server.run() {

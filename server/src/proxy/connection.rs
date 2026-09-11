@@ -216,7 +216,7 @@ pub fn proxy_connections(
     });
 }
 
-fn find_header_end(buf: &[u8]) -> Option<usize> {
+pub fn find_header_end(buf: &[u8]) -> Option<usize> {
     for i in 0..buf.len() {
         if buf[i..].starts_with(b"\r\n\r\n") {
             return Some(i + 4);

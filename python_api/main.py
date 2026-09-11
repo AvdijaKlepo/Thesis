@@ -31,6 +31,9 @@ class OhaRequest(BaseModel):
 class AlgorithmSwitchRequest(BaseModel):
     algorithm:str
 
+class RuntimeSwitchRequest(BaseModel):
+    runtime:str
+
 class BreakRecoverInstance(BaseModel):
     name:str
 
@@ -145,6 +148,25 @@ async def switch_algorithm(algorithm:AlgorithmSwitchRequest):
         )
     return {"status": resp.status_code, "message": resp.text}
 
+
+@app.post("/switch-runtime")
+async def switch_runtime(req: RuntimeSwitchRequest):
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "http://127.0.0.1:7880/runtime",
+            content=req.runtime,
+            timeout=2.0,
+            headers={"Content-Type": "text/plain"}
+        )
+    return {"status": resp.status_code, "message": resp.text}
+
+@app.get("/runtime")
+async def get_runtime_mode():
+    async with httpx.AsyncClient() as client:
+        resp = await client.get("http://127.0.0.1:7880/runtime", timeout=2.0)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Failed to fetch runtime mode")
+    return resp.json()
 
 
 

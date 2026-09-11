@@ -10,6 +10,7 @@ use crate::{
         create_load_balancer,
     },
     backend::registry::BackendRegistry,
+    proxy::runtime::RuntimeMode,
 };
 
 fn start_server_with_fallback(
@@ -48,7 +49,7 @@ fn start_server_with_fallback(
     .into())
 }
 
-pub fn create_server(lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>, registry: Arc<BackendRegistry>) {
+pub fn create_server(lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>, registry: Arc<BackendRegistry>, runtime_mode: Arc<ArcSwap<RuntimeMode>>) {
     let server = match start_server_with_fallback("127.0.0.1", 7880, 10) {
         Ok(server) => server,
         Err(e) => {
@@ -60,7 +61,8 @@ pub fn create_server(lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>, registry: Arc
     for request in server.incoming_requests() {
         let lb_slot = Arc::clone(&lb_slot);
         let registry = Arc::clone(&registry);
-        std::thread::spawn(move || handle_requests(request, lb_slot, registry));
+        let runtime_mode = Arc::clone(&runtime_mode);
+        std::thread::spawn(move || handle_requests(request, lb_slot, registry, runtime_mode));
     }
 }
 
@@ -68,6 +70,7 @@ fn handle_requests(
     request: tiny_http::Request,
     lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
     registry: Arc<BackendRegistry>,
+    runtime_mode: Arc<ArcSwap<RuntimeMode>>,
 ) {
     let path = request.url().split('?').next().unwrap_or("");
 
@@ -86,6 +89,37 @@ fn handle_requests(
 
         (&tiny_http::Method::Get, "/metrics") => {
             get_metrics_endpoint(request, registry);
+        }
+
+        (&tiny_http::Method::Post, "/runtime") => {
+            change_runtime(request, runtime_mode);
+        }
+
+        (&tiny_http::Method::Get, "/runtime") => {
+            get_runtime(request, runtime_mode);
+        }
+
+        (&tiny_http::Method::Options, _) => {
+            let response = tiny_http::Response::empty(204)
+                .with_header(
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap(),
+                )
+                .with_header(
+                    tiny_http::Header::from_bytes(
+                        &b"Access-Control-Allow-Methods"[..],
+                        &b"GET, POST, OPTIONS"[..],
+                    )
+                    .unwrap(),
+                )
+                .with_header(
+                    tiny_http::Header::from_bytes(
+                        &b"Access-Control-Allow-Headers"[..],
+                        &b"Content-Type"[..],
+                    )
+                    .unwrap(),
+                );
+            let _ = request.respond(response);
         }
 
         _ => {
@@ -251,3 +285,80 @@ fn change_algorithm(
 
     let _ = request.respond(response);
 }
+
+fn change_runtime(
+    mut request: tiny_http::Request,
+    runtime_mode: Arc<ArcSwap<RuntimeMode>>,
+) {
+    let mut body = String::new();
+
+    if request.as_reader().read_to_string(&mut body).is_err() {
+        let response = tiny_http::Response::from_string("Invalid request body")
+            .with_status_code(400)
+            .with_header(
+                tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+            );
+        let _ = request.respond(response);
+        return;
+    }
+
+    let trimmed = body.trim();
+    let mode_str = if trimmed.starts_with('{') {
+        #[derive(serde::Deserialize)]
+        struct RuntimeReq {
+            runtime: Option<String>,
+            mode: Option<String>,
+        }
+        serde_json::from_str::<RuntimeReq>(trimmed)
+            .ok()
+            .and_then(|r| r.runtime.or(r.mode))
+            .unwrap_or_else(|| trimmed.to_string())
+    } else {
+        trimmed.to_string()
+    };
+
+    let new_mode = match RuntimeMode::from_str_name(&mode_str) {
+        Some(mode) => mode,
+        None => {
+            let response = tiny_http::Response::from_string(format!("unknown runtime mode: {mode_str}"))
+                .with_status_code(400)
+                .with_header(
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+                );
+            let _ = request.respond(response);
+            return;
+        }
+    };
+
+    runtime_mode.store(Arc::new(new_mode));
+    println!("Switched proxy runtime mode to: {:?}", new_mode);
+
+    let resp_json = format!(r#"{{"status":"switched","runtime":"{}"}}"#, new_mode.as_str());
+    let response = tiny_http::Response::from_string(resp_json)
+        .with_status_code(200)
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+        )
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+        );
+    let _ = request.respond(response);
+}
+
+fn get_runtime(
+    request: tiny_http::Request,
+    runtime_mode: Arc<ArcSwap<RuntimeMode>>,
+) {
+    let mode = **runtime_mode.load();
+    let resp_json = format!(r#"{{"runtime":"{}"}}"#, mode.as_str());
+    let response = tiny_http::Response::from_string(resp_json)
+        .with_status_code(200)
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+        )
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+        );
+    let _ = request.respond(response);
+}
+
