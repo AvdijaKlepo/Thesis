@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use crate::backend::registry::BackendRegistry;
+use crate::backend::BackendPool;
 
 #[derive(Clone, Debug)]
 pub struct HealthCheckConfig {
@@ -37,15 +37,15 @@ struct BackendHealthTracker {
 }
 
 pub struct HealthChecker {
-    registry: Arc<BackendRegistry>,
+    backend_pool: Arc<BackendPool>,
     config: HealthCheckConfig,
     trackers: Mutex<HashMap<String, BackendHealthTracker>>,
 }
 
 impl HealthChecker {
-    pub fn new(registry: Arc<BackendRegistry>, config: HealthCheckConfig) -> Self {
+    pub fn new(backend_pool: Arc<BackendPool>, config: HealthCheckConfig) -> Self {
         Self {
-            registry,
+            backend_pool,
             config,
             trackers: Mutex::new(HashMap::new()),
         }
@@ -53,7 +53,7 @@ impl HealthChecker {
 
     /// Performs one round of TCP connect health checks against all backends currently in the registry.
     pub fn check_all(&self) {
-        let nodes = self.registry.all();
+        let nodes = self.backend_pool.backends();
         let mut trackers = self.trackers.lock().unwrap();
 
         for node in nodes {
@@ -120,8 +120,8 @@ impl HealthChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Backend, algorithms::AlgorithmKind};
     use std::net::TcpListener;
-    use crate::{Backend, algorithms::algorithms::BackendNode};
 
     #[test]
     fn test_health_checker_detects_failure_and_recovery() {
@@ -129,13 +129,18 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
 
-        let registry = Arc::new(BackendRegistry::new());
-        let node = BackendNode::new(Backend {
-            id: "test-node".into(),
-            address: format!("127.0.0.1:{port}"),
-            weight: 1,
-        });
-        registry.add(node.clone());
+        let backend_pool = Arc::new(
+            BackendPool::new(
+                AlgorithmKind::RoundRobin,
+                vec![Backend {
+                    id: "test-node".into(),
+                    address: format!("127.0.0.1:{port}"),
+                    weight: 1,
+                }],
+            )
+            .unwrap(),
+        );
+        let node = backend_pool.backends().remove(0);
 
         let config = HealthCheckConfig {
             interval: Duration::from_millis(50),
@@ -144,7 +149,7 @@ mod tests {
             healthy_threshold: 2,
         };
 
-        let checker = HealthChecker::new(Arc::clone(&registry), config);
+        let checker = HealthChecker::new(Arc::clone(&backend_pool), config);
 
         // Initially healthy
         assert!(node.healthy.load(Ordering::Relaxed));
@@ -176,4 +181,3 @@ mod tests {
         assert!(node.healthy.load(Ordering::Relaxed));
     }
 }
-

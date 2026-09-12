@@ -1,8 +1,4 @@
-use std::{
-    io,
-    sync::Arc,
-    time::Instant,
-};
+use std::{io, sync::Arc, time::Instant};
 
 use arc_swap::ArcSwap;
 use tokio::{
@@ -15,8 +11,8 @@ use crate::{
     algorithms::algorithms::LoadBalancer,
     backend::backend_server::Feedback,
     proxy::connection::{
-        ActiveConnectionGuard, ClientRequest, ProxyResult, CONNECT_TIMEOUT, MAX_BODY_SIZE,
-        MAX_HEADER_SIZE, MAX_RETRIES, READ_TIMEOUT, WRITE_TIMEOUT, find_header_end,
+        ActiveConnectionGuard, CONNECT_TIMEOUT, ClientRequest, MAX_BODY_SIZE, MAX_HEADER_SIZE,
+        MAX_RETRIES, ProxyResult, READ_TIMEOUT, WRITE_TIMEOUT, find_header_end,
         prepare_upstream_request,
     },
 };
@@ -51,7 +47,9 @@ impl RuntimeMode {
 ///
 /// Mirrors the logic of `connection::read_http_response` but uses
 /// `tokio::io::AsyncReadExt` instead of blocking `std::io::Read`.
-pub async fn read_http_response_async<R: AsyncReadExt + Unpin>(stream: &mut R) -> io::Result<Vec<u8>> {
+pub async fn read_http_response_async<R: AsyncReadExt + Unpin>(
+    stream: &mut R,
+) -> io::Result<Vec<u8>> {
     let mut buffer = Vec::with_capacity(8192);
     let mut chunk_buf = [0u8; 4096];
     let mut header_end = None;
@@ -113,10 +111,7 @@ pub async fn read_http_response_async<R: AsyncReadExt + Unpin>(stream: &mut R) -
         let mut cursor = header_end_idx;
         loop {
             let crlf_pos = loop {
-                if let Some(pos) = buffer[cursor..]
-                    .windows(2)
-                    .position(|w| w == b"\r\n")
-                {
+                if let Some(pos) = buffer[cursor..].windows(2).position(|w| w == b"\r\n") {
                     break cursor + pos;
                 }
                 let n = stream.read(&mut chunk_buf).await?;
@@ -132,7 +127,10 @@ pub async fn read_http_response_async<R: AsyncReadExt + Unpin>(stream: &mut R) -
             let line = String::from_utf8_lossy(&buffer[cursor..crlf_pos]);
             let hex_part = line.split(';').next().unwrap_or("").trim();
             let chunk_size = usize::from_str_radix(hex_part, 16).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid chunk size: {e}"))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid chunk size: {e}"),
+                )
             })?;
 
             if chunk_size == 0 {
@@ -240,7 +238,8 @@ pub async fn read_http_request_async<R: AsyncReadExt + Unpin>(
     });
     let has_keep_alive = header_str.lines().any(|l| {
         l.split_once(':').map_or(false, |(k, v)| {
-            k.trim().eq_ignore_ascii_case("connection") && v.to_ascii_lowercase().contains("keep-alive")
+            k.trim().eq_ignore_ascii_case("connection")
+                && v.to_ascii_lowercase().contains("keep-alive")
         })
     });
     let keep_alive = if is_http_10 {
@@ -251,7 +250,8 @@ pub async fn read_http_request_async<R: AsyncReadExt + Unpin>(
 
     let is_chunked = header_str.lines().any(|l| {
         l.split_once(':').map_or(false, |(k, v)| {
-            k.trim().eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+            k.trim().eq_ignore_ascii_case("transfer-encoding")
+                && v.to_ascii_lowercase().contains("chunked")
         })
     });
 
@@ -290,17 +290,25 @@ pub async fn read_http_request_async<R: AsyncReadExt + Unpin>(
             let line = String::from_utf8_lossy(&buffer[cursor..crlf_pos]);
             let hex_part = line.split(';').next().unwrap_or("").trim();
             let chunk_size = usize::from_str_radix(hex_part, 16).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid request chunk size: {e}"))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid request chunk size: {e}"),
+                )
             })?;
 
             if chunk_size == 0 {
                 let trailer_start = crlf_pos + 2;
                 loop {
-                    if buffer.len() >= trailer_start + 2 && &buffer[trailer_start..trailer_start + 2] == b"\r\n" {
+                    if buffer.len() >= trailer_start + 2
+                        && &buffer[trailer_start..trailer_start + 2] == b"\r\n"
+                    {
                         buffer.truncate(trailer_start + 2);
                         break;
                     }
-                    if let Some(pos) = buffer[trailer_start..].windows(4).position(|w| w == b"\r\n\r\n") {
+                    if let Some(pos) = buffer[trailer_start..]
+                        .windows(4)
+                        .position(|w| w == b"\r\n\r\n")
+                    {
                         buffer.truncate(trailer_start + pos + 4);
                         break;
                     }
@@ -409,7 +417,8 @@ pub async fn forward_response_stream_async<R: AsyncReadExt + Unpin, W: AsyncWrit
 
     let is_chunked = header_str.lines().any(|line| {
         line.split_once(':').map_or(false, |(k, v)| {
-            k.trim().eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+            k.trim().eq_ignore_ascii_case("transfer-encoding")
+                && v.to_ascii_lowercase().contains("chunked")
         })
     });
 
@@ -522,10 +531,18 @@ pub async fn proxy_connections_async(
                     .load(std::sync::atomic::Ordering::Relaxed)
             );
 
-            let mut upstream = match timeout(CONNECT_TIMEOUT, TokioTcpStream::connect(&backend.backend.address)).await {
+            let mut upstream = match timeout(
+                CONNECT_TIMEOUT,
+                TokioTcpStream::connect(&backend.backend.address),
+            )
+            .await
+            {
                 Ok(Ok(s)) => s,
                 Ok(Err(e)) => {
-                    eprintln!("Failed to connect to backend {} [async]: {e}", backend.backend.address);
+                    eprintln!(
+                        "Failed to connect to backend {} [async]: {e}",
+                        backend.backend.address
+                    );
                     let feedback = Feedback {
                         latency: start.elapsed(),
                         success: false,
@@ -536,7 +553,10 @@ pub async fn proxy_connections_async(
                     continue;
                 }
                 Err(_) => {
-                    eprintln!("Connect to backend {} timed out [async]", backend.backend.address);
+                    eprintln!(
+                        "Connect to backend {} timed out [async]",
+                        backend.backend.address
+                    );
                     let feedback = Feedback {
                         latency: start.elapsed(),
                         success: false,
@@ -550,7 +570,10 @@ pub async fn proxy_connections_async(
 
             let write_res = timeout(WRITE_TIMEOUT, upstream.write_all(&upstream_req)).await;
             if write_res.is_err() || write_res.unwrap().is_err() {
-                eprintln!("Failed writing to backend {} [async]", backend.backend.address);
+                eprintln!(
+                    "Failed writing to backend {} [async]",
+                    backend.backend.address
+                );
                 let feedback = Feedback {
                     latency: start.elapsed(),
                     success: false,
@@ -566,7 +589,12 @@ pub async fn proxy_connections_async(
                 }
             }
 
-            match timeout(READ_TIMEOUT, forward_response_stream_async(&mut upstream, &mut client)).await {
+            match timeout(
+                READ_TIMEOUT,
+                forward_response_stream_async(&mut upstream, &mut client),
+            )
+            .await
+            {
                 Ok(Ok((bytes_sent_to_client, _status))) => {
                     let latency = start.elapsed();
                     let feedback = Feedback {
@@ -643,8 +671,14 @@ mod tests {
 
     #[test]
     fn test_runtime_mode_parsing() {
-        assert_eq!(RuntimeMode::from_str_name("thread_pool"), Some(RuntimeMode::ThreadPool));
-        assert_eq!(RuntimeMode::from_str_name("async"), Some(RuntimeMode::Async));
+        assert_eq!(
+            RuntimeMode::from_str_name("thread_pool"),
+            Some(RuntimeMode::ThreadPool)
+        );
+        assert_eq!(
+            RuntimeMode::from_str_name("async"),
+            Some(RuntimeMode::Async)
+        );
         assert_eq!(RuntimeMode::from_str_name("unknown"), None);
 
         assert_eq!(RuntimeMode::ThreadPool.as_str(), "thread_pool");
@@ -680,7 +714,10 @@ mod tests {
         let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\nEXTRA_PIPELINE";
         let mut cursor = Cursor::new(raw.to_vec());
         let resp = read_http_response_async(&mut cursor).await.unwrap();
-        assert_eq!(resp, b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n");
+        assert_eq!(
+            resp,
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+        );
     }
 
     #[tokio::test]
@@ -720,11 +757,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_forward_response_stream_async_streaming() {
-        let upstream_data = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world";
+        let upstream_data =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world";
         let mut upstream = Cursor::new(upstream_data.to_vec());
         let mut client_buf = Vec::new();
 
-        let (total_written, status) = forward_response_stream_async(&mut upstream, &mut client_buf).await.unwrap();
+        let (total_written, status) = forward_response_stream_async(&mut upstream, &mut client_buf)
+            .await
+            .unwrap();
         assert_eq!(status, 200);
         assert_eq!(total_written, upstream_data.len());
         assert_eq!(client_buf, upstream_data);

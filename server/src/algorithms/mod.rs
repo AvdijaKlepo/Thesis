@@ -1,5 +1,6 @@
-use std::sync::Arc;
 use arc_swap::ArcSwap;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use crate::{
     algorithms::algorithms::{
@@ -9,19 +10,55 @@ use crate::{
     backend::registry::BackendRegistry,
 };
 
-pub mod algorithms;
 pub mod algorithm_server;
+pub mod algorithms;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlgorithmKind {
+    RoundRobin,
+    WeightedRoundRobin,
+    LeastConnections,
+    LeastResponseTime,
+}
+
+impl AlgorithmKind {
+    pub fn from_str_name(value: &str) -> Option<Self> {
+        match value {
+            "round_robin" => Some(Self::RoundRobin),
+            "weighted_round_robin" => Some(Self::WeightedRoundRobin),
+            "least_connections" => Some(Self::LeastConnections),
+            "least_response_time" => Some(Self::LeastResponseTime),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RoundRobin => "round_robin",
+            Self::WeightedRoundRobin => "weighted_round_robin",
+            Self::LeastConnections => "least_connections",
+            Self::LeastResponseTime => "least_response_time",
+        }
+    }
+}
 
 pub fn create_load_balancer(
     algorithm: &str,
     backends: Vec<BackendNode>,
 ) -> Option<Box<dyn LoadBalancer>> {
+    AlgorithmKind::from_str_name(algorithm).map(|kind| create_load_balancer_for(kind, backends))
+}
+
+pub fn create_load_balancer_for(
+    algorithm: AlgorithmKind,
+    backends: Vec<BackendNode>,
+) -> Box<dyn LoadBalancer> {
     match algorithm {
-        "round_robin" => Some(Box::new(RoundRobin::new(backends))),
-        "weighted_round_robin" => Some(Box::new(WeightedRoundRobin::new(backends))),
-        "least_connections" => Some(Box::new(LeastConnections::new(backends))),
-        "least_response_time" => Some(Box::new(LeastResponseTime::new(backends))),
-        _ => None,
+        AlgorithmKind::RoundRobin => Box::new(RoundRobin::new(backends)),
+        AlgorithmKind::WeightedRoundRobin => Box::new(WeightedRoundRobin::new(backends)),
+        AlgorithmKind::LeastConnections => Box::new(LeastConnections::new(backends)),
+        AlgorithmKind::LeastResponseTime => Box::new(LeastResponseTime::new(backends)),
     }
 }
 
@@ -37,10 +74,7 @@ pub fn sync_load_balancer_backends(
 }
 
 /// Syncs the active load balancer in `lb_slot` with all current backends from the registry.
-pub fn sync_load_balancer(
-    lb_slot: &ArcSwap<Box<dyn LoadBalancer>>,
-    registry: &BackendRegistry,
-) {
+pub fn sync_load_balancer(lb_slot: &ArcSwap<Box<dyn LoadBalancer>>, registry: &BackendRegistry) {
     sync_load_balancer_backends(lb_slot, registry.all());
 }
 
@@ -56,6 +90,21 @@ mod tests {
             address: format!("127.0.0.1:{port}"),
             weight,
         })
+    }
+
+    #[test]
+    fn algorithm_kind_round_trips_through_its_name() {
+        let kinds = [
+            AlgorithmKind::RoundRobin,
+            AlgorithmKind::WeightedRoundRobin,
+            AlgorithmKind::LeastConnections,
+            AlgorithmKind::LeastResponseTime,
+        ];
+
+        for kind in kinds {
+            assert_eq!(AlgorithmKind::from_str_name(kind.as_str()), Some(kind));
+        }
+        assert_eq!(AlgorithmKind::from_str_name("unknown"), None);
     }
 
     #[test]

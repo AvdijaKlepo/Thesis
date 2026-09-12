@@ -6,7 +6,7 @@ use std::{
 use arc_swap::ArcSwap;
 
 use crate::{
-    algorithms::algorithms::LoadBalancer,
+    backend::BackendPool,
     proxy::connection::proxy_connections,
     proxy::runtime::{RuntimeMode, proxy_connections_async},
     worker::ThreadPool,
@@ -16,7 +16,7 @@ pub struct ProxyServer {
     address: String,
     pool: Arc<Mutex<ThreadPool>>,
     runtime_mode: Arc<ArcSwap<RuntimeMode>>,
-    load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
+    backend_pool: Arc<BackendPool>,
 }
 
 impl ProxyServer {
@@ -24,13 +24,13 @@ impl ProxyServer {
         address: impl Into<String>,
         pool_size: usize,
         runtime_mode: Arc<ArcSwap<RuntimeMode>>,
-        load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
+        backend_pool: Arc<BackendPool>,
     ) -> Self {
         Self {
             address: address.into(),
             pool: Arc::new(Mutex::new(ThreadPool::new(pool_size))),
             runtime_mode,
-            load_balancer,
+            backend_pool,
         }
     }
 
@@ -54,7 +54,7 @@ impl ProxyServer {
         let address = self.address.clone();
         let pool = Arc::clone(&self.pool);
         let runtime_mode = Arc::clone(&self.runtime_mode);
-        let load_balancer = Arc::clone(&self.load_balancer);
+        let backend_pool = Arc::clone(&self.backend_pool);
 
         rt.block_on(async move {
             let listener = tokio::net::TcpListener::bind(&address).await?;
@@ -64,7 +64,7 @@ impl ProxyServer {
                 let (stream, _addr) = listener.accept().await?;
 
                 let mode = **runtime_mode.load();
-                let lb = Arc::clone(&load_balancer);
+                let backend_pool = Arc::clone(&backend_pool);
 
                 match mode {
                     RuntimeMode::ThreadPool => {
@@ -72,6 +72,7 @@ impl ProxyServer {
                         let std_stream = stream.into_std()?;
                         let pool = Arc::clone(&pool);
                         pool.lock().unwrap().execute(move || {
+                            let lb = backend_pool.load_balancer();
                             if let Some(result) = proxy_connections(std_stream, &lb) {
                                 println!(
                                     "Proxy request finished [thread_pool]: backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",
@@ -82,6 +83,7 @@ impl ProxyServer {
                     }
                     RuntimeMode::Async => {
                         tokio::spawn(async move {
+                            let lb = backend_pool.load_balancer();
                             if let Some(result) = proxy_connections_async(stream, &lb).await {
                                 println!(
                                     "Proxy request finished [async]: backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",

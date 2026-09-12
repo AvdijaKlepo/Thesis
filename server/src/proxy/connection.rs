@@ -25,7 +25,8 @@ impl ActiveConnectionGuard {
 
     pub fn complete(mut self, feedback: &Feedback, bytes_sent: usize, bytes_received: usize) {
         self.completed = true;
-        self.metrics.record_end(feedback, bytes_sent, bytes_received);
+        self.metrics
+            .record_end(feedback, bytes_sent, bytes_received);
     }
 }
 
@@ -101,7 +102,8 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
     });
     let has_keep_alive = header_str.lines().any(|l| {
         l.split_once(':').map_or(false, |(k, v)| {
-            k.trim().eq_ignore_ascii_case("connection") && v.to_ascii_lowercase().contains("keep-alive")
+            k.trim().eq_ignore_ascii_case("connection")
+                && v.to_ascii_lowercase().contains("keep-alive")
         })
     });
     let keep_alive = if is_http_10 {
@@ -112,7 +114,8 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
 
     let is_chunked = header_str.lines().any(|l| {
         l.split_once(':').map_or(false, |(k, v)| {
-            k.trim().eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+            k.trim().eq_ignore_ascii_case("transfer-encoding")
+                && v.to_ascii_lowercase().contains("chunked")
         })
     });
 
@@ -151,17 +154,25 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
             let line = String::from_utf8_lossy(&buffer[cursor..crlf_pos]);
             let hex_part = line.split(';').next().unwrap_or("").trim();
             let chunk_size = usize::from_str_radix(hex_part, 16).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid request chunk size: {e}"))
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Invalid request chunk size: {e}"),
+                )
             })?;
 
             if chunk_size == 0 {
                 let trailer_start = crlf_pos + 2;
                 loop {
-                    if buffer.len() >= trailer_start + 2 && &buffer[trailer_start..trailer_start + 2] == b"\r\n" {
+                    if buffer.len() >= trailer_start + 2
+                        && &buffer[trailer_start..trailer_start + 2] == b"\r\n"
+                    {
                         buffer.truncate(trailer_start + 2);
                         break;
                     }
-                    if let Some(pos) = buffer[trailer_start..].windows(4).position(|w| w == b"\r\n\r\n") {
+                    if let Some(pos) = buffer[trailer_start..]
+                        .windows(4)
+                        .position(|w| w == b"\r\n\r\n")
+                    {
                         buffer.truncate(trailer_start + pos + 4);
                         break;
                     }
@@ -270,7 +281,8 @@ pub fn forward_response_stream<R: Read, W: Write>(
 
     let is_chunked = header_str.lines().any(|line| {
         line.split_once(':').map_or(false, |(k, v)| {
-            k.trim().eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+            k.trim().eq_ignore_ascii_case("transfer-encoding")
+                && v.to_ascii_lowercase().contains("chunked")
         })
     });
 
@@ -348,7 +360,9 @@ pub fn proxy_connections(
             Ok(Some(req)) => req,
             Ok(None) => break,
             Err(e) => {
-                if e.kind() != std::io::ErrorKind::TimedOut && e.kind() != std::io::ErrorKind::WouldBlock {
+                if e.kind() != std::io::ErrorKind::TimedOut
+                    && e.kind() != std::io::ErrorKind::WouldBlock
+                {
                     eprintln!("Error reading client request: {e}");
                 }
                 break;
@@ -377,7 +391,10 @@ pub fn proxy_connections(
                 attempt + 1,
                 backend.backend.id,
                 backend.backend.address,
-                backend.metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed)
+                backend
+                    .metrics
+                    .active_connections
+                    .load(std::sync::atomic::Ordering::Relaxed)
             );
 
             let upstream_addr = match backend.backend.address.parse::<std::net::SocketAddr>() {
@@ -397,7 +414,10 @@ pub fn proxy_connections(
             let mut upstream = match TcpStream::connect_timeout(&upstream_addr, CONNECT_TIMEOUT) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("Failed to connect to backend {}: {e}", backend.backend.address);
+                    eprintln!(
+                        "Failed to connect to backend {}: {e}",
+                        backend.backend.address
+                    );
                     let feedback = Feedback {
                         latency: start.elapsed(),
                         success: false,
@@ -413,7 +433,10 @@ pub fn proxy_connections(
             let _ = upstream.set_write_timeout(Some(WRITE_TIMEOUT));
 
             if let Err(e) = upstream.write_all(&upstream_req) {
-                eprintln!("Failed to write to backend {}: {e}", backend.backend.address);
+                eprintln!(
+                    "Failed to write to backend {}: {e}",
+                    backend.backend.address
+                );
                 let feedback = Feedback {
                     latency: start.elapsed(),
                     success: false,
@@ -611,10 +634,7 @@ pub fn read_http_response<R: Read>(stream: &mut R) -> std::io::Result<Vec<u8>> {
         let mut cursor = header_end_idx;
         loop {
             let crlf_pos = loop {
-                if let Some(pos) = buffer[cursor..]
-                    .windows(2)
-                    .position(|w| w == b"\r\n")
-                {
+                if let Some(pos) = buffer[cursor..].windows(2).position(|w| w == b"\r\n") {
                     break cursor + pos;
                 }
                 let n = stream.read(&mut chunk_buf)?;
@@ -630,7 +650,10 @@ pub fn read_http_response<R: Read>(stream: &mut R) -> std::io::Result<Vec<u8>> {
             let line = String::from_utf8_lossy(&buffer[cursor..crlf_pos]);
             let hex_part = line.split(';').next().unwrap_or("").trim();
             let chunk_size = usize::from_str_radix(hex_part, 16).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid chunk size: {e}"))
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Invalid chunk size: {e}"),
+                )
             })?;
 
             if chunk_size == 0 {
@@ -736,7 +759,10 @@ mod tests {
         let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\nEXTRA_PIPELINE";
         let mut cursor = Cursor::new(raw);
         let resp = read_http_response(&mut cursor).unwrap();
-        assert_eq!(resp, b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n");
+        assert_eq!(
+            resp,
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+        );
     }
 
     #[test]
@@ -757,7 +783,8 @@ mod tests {
 
     #[test]
     fn test_prepare_upstream_request_replaces_keep_alive() {
-        let raw = b"GET /company HTTP/1.1\r\nHost: localhost:7879\r\nConnection: keep-alive\r\n\r\n";
+        let raw =
+            b"GET /company HTTP/1.1\r\nHost: localhost:7879\r\nConnection: keep-alive\r\n\r\n";
         let modified = prepare_upstream_request(raw);
         let s = String::from_utf8_lossy(&modified);
         assert!(s.contains("Connection: close\r\n"));
@@ -767,11 +794,26 @@ mod tests {
     #[test]
     fn test_active_connection_guard_complete() {
         let metrics = Arc::new(crate::backend::backend_server::BackendMetrics::new());
-        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(
+            metrics
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
 
         let guard = ActiveConnectionGuard::new(Arc::clone(&metrics));
-        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
-        assert_eq!(metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(
+            metrics
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            metrics
+                .total_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
 
         guard.complete(
             &Feedback {
@@ -793,7 +835,12 @@ mod tests {
         let metrics = Arc::new(crate::backend::backend_server::BackendMetrics::new());
         {
             let _guard = ActiveConnectionGuard::new(Arc::clone(&metrics));
-            assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
+            assert_eq!(
+                metrics
+                    .active_connections
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                1
+            );
             // Dropped here without calling complete
         }
         let snap = metrics.snapshot();
@@ -837,12 +884,10 @@ mod tests {
         let mut upstream = Cursor::new(raw_resp);
         let mut client_sink = Vec::new();
 
-        let (bytes_sent, status) = forward_response_stream(&mut upstream, &mut client_sink).unwrap();
+        let (bytes_sent, status) =
+            forward_response_stream(&mut upstream, &mut client_sink).unwrap();
         assert_eq!(status, 200);
         assert_eq!(bytes_sent, raw_resp.len());
         assert_eq!(client_sink, raw_resp);
     }
 }
-
-
-

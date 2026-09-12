@@ -27,13 +27,16 @@ impl BackendRegistry {
         Some(backends.remove(index))
     }
 
+    pub fn replace(&self, id: &str, backend: BackendNode) -> Option<BackendNode> {
+        let mut backends = self.backends.write().unwrap();
+        let index = backends.iter().position(|candidate| candidate.id == id)?;
+        Some(std::mem::replace(&mut backends[index], backend))
+    }
+
     pub fn get(&self, id: &str) -> Option<BackendNode> {
         let backends = self.backends.read().unwrap();
 
-        backends
-            .iter()
-            .find(|backend| backend.id == id)
-            .cloned()
+        backends.iter().find(|backend| backend.id == id).cloned()
     }
 
     pub fn all(&self) -> Vec<BackendNode> {
@@ -85,8 +88,8 @@ impl Default for BackendRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
     use crate::Backend;
+    use std::sync::atomic::Ordering;
 
     fn backend_node(id: &str, port: u16) -> BackendNode {
         BackendNode::new(Backend {
@@ -144,30 +147,21 @@ mod tests {
             .metrics
             .active_connections
             .fetch_add(5, Ordering::Relaxed);
-        all1[0]
-            .metrics
-            .latency_us
-            .store(42, Ordering::Relaxed);
+        all1[0].metrics.latency_us.store(42, Ordering::Relaxed);
 
         let all2 = registry.all();
         assert_eq!(
             all2[0].metrics.active_connections.load(Ordering::Relaxed),
             5
         );
-        assert_eq!(
-            all2[0].metrics.latency_us.load(Ordering::Relaxed),
-            42
-        );
+        assert_eq!(all2[0].metrics.latency_us.load(Ordering::Relaxed), 42);
 
         let from_get = registry.get("1").unwrap();
         assert_eq!(
             from_get.metrics.active_connections.load(Ordering::Relaxed),
             5
         );
-        assert_eq!(
-            from_get.metrics.latency_us.load(Ordering::Relaxed),
-            42
-        );
+        assert_eq!(from_get.metrics.latency_us.load(Ordering::Relaxed), 42);
     }
 
     #[test]
@@ -187,4 +181,3 @@ mod tests {
         assert!(summary[1].healthy);
     }
 }
-

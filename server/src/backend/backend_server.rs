@@ -1,5 +1,11 @@
 use std::{
-    io::{Read, Write}, net::{TcpListener, TcpStream}, sync::{Arc, atomic::{AtomicBool, AtomicU64, AtomicUsize}}, time::Duration,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize},
+    },
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -10,7 +16,7 @@ use crate::worker::ThreadPool;
 pub struct Backend {
     pub id: String,
     pub address: String,
-    pub weight: usize
+    pub weight: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -55,8 +61,10 @@ impl BackendMetrics {
     }
 
     pub fn record_start(&self) {
-        self.active_connections.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.active_connections
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.total_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn record_end(&self, feedback: &Feedback, bytes_sent: usize, bytes_received: usize) {
@@ -67,30 +75,47 @@ impl BackendMetrics {
         );
 
         if feedback.success {
-            self.successful_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.successful_requests
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             let measured = feedback.latency.as_micros() as u64;
             let old = self.latency_us.load(std::sync::atomic::Ordering::Relaxed);
             let alpha = 0.2;
             let new_latency = ((1.0 - alpha) * old as f64 + alpha * measured as f64) as u64;
-            self.latency_us.store(new_latency.max(1), std::sync::atomic::Ordering::Relaxed);
+            self.latency_us
+                .store(new_latency.max(1), std::sync::atomic::Ordering::Relaxed);
         } else {
-            self.failed_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.failed_requests
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
 
-        self.total_bytes_sent.fetch_add(bytes_sent as u64, std::sync::atomic::Ordering::Relaxed);
-        self.total_bytes_received.fetch_add(bytes_received as u64, std::sync::atomic::Ordering::Relaxed);
+        self.total_bytes_sent
+            .fetch_add(bytes_sent as u64, std::sync::atomic::Ordering::Relaxed);
+        self.total_bytes_received
+            .fetch_add(bytes_received as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn snapshot(&self) -> BackendMetricsSnapshot {
         BackendMetricsSnapshot {
-            active_connections: self.active_connections.load(std::sync::atomic::Ordering::Relaxed),
+            active_connections: self
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
             latency_us: self.latency_us.load(std::sync::atomic::Ordering::Relaxed),
-            total_requests: self.total_requests.load(std::sync::atomic::Ordering::Relaxed),
-            successful_requests: self.successful_requests.load(std::sync::atomic::Ordering::Relaxed),
-            failed_requests: self.failed_requests.load(std::sync::atomic::Ordering::Relaxed),
-            total_bytes_sent: self.total_bytes_sent.load(std::sync::atomic::Ordering::Relaxed),
-            total_bytes_received: self.total_bytes_received.load(std::sync::atomic::Ordering::Relaxed),
+            total_requests: self
+                .total_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
+            successful_requests: self
+                .successful_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
+            failed_requests: self
+                .failed_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
+            total_bytes_sent: self
+                .total_bytes_sent
+                .load(std::sync::atomic::Ordering::Relaxed),
+            total_bytes_received: self
+                .total_bytes_received
+                .load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -117,7 +142,6 @@ impl BackendServer {
     }
 
     pub fn run(&self) -> std::io::Result<()> {
-
         println!("Attemptin to bind backend to :{}", self.backend.address);
 
         let listener = TcpListener::bind(&self.backend.address)?;
@@ -178,11 +202,26 @@ mod tests {
     #[test]
     fn test_backend_metrics_lifecycle() {
         let metrics = BackendMetrics::new();
-        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(
+            metrics
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
 
         metrics.record_start();
-        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
-        assert_eq!(metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(
+            metrics
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            metrics
+                .total_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
 
         metrics.record_end(
             &Feedback {
@@ -238,7 +277,11 @@ mod tests {
             0,
             0,
         );
-        assert_eq!(metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(
+            metrics
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
     }
 }
-

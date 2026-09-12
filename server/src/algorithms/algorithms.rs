@@ -3,9 +3,10 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use crate::{Backend, backend::backend_server::{BackendMetrics, Feedback}};
-
-
+use crate::{
+    Backend,
+    backend::backend_server::{BackendMetrics, Feedback},
+};
 
 #[derive(Clone, Debug)]
 pub struct BackendNode {
@@ -98,17 +99,11 @@ impl LoadBalancer for RoundRobin {
         let pool = if healthy.is_empty() {
             &self.backends[..]
         } else {
-            let i = self
-                .counter
-                .fetch_add(1, Ordering::Relaxed)
-                % healthy.len();
+            let i = self.counter.fetch_add(1, Ordering::Relaxed) % healthy.len();
             return (*healthy[i]).clone();
         };
 
-        let i = self
-            .counter
-            .fetch_add(1, Ordering::Relaxed)
-            % pool.len();
+        let i = self.counter.fetch_add(1, Ordering::Relaxed) % pool.len();
         pool[i].clone()
     }
 
@@ -472,5 +467,3 @@ mod tests {
         assert!(wid == "1" || wid == "2");
     }
 }
-
-

@@ -9,7 +9,7 @@ fn main() {
     let backend = Backend {
         id,
         address: format!("127.0.0.1:{port}"),
-        weight:1
+        weight: 1,
     };
 
     let server = BackendServer::new(backend, 4);

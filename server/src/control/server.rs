@@ -5,22 +5,26 @@ use std::{
     sync::Arc,
 };
 
-use crate::{backend::registry::BackendRegistry, control::static_file::StaticFileHandler};
+use crate::{backend::BackendPool, control::static_file::StaticFileHandler};
 
 pub struct ControlServer {
     address: String,
 
     static_files: StaticFileHandler,
 
-    registry: Arc<BackendRegistry>
+    backend_pool: Arc<BackendPool>,
 }
 
 impl ControlServer {
-    pub fn new(address: impl Into<String>, root: impl Into<PathBuf>, registry:Arc<BackendRegistry>) -> Self {
+    pub fn new(
+        address: impl Into<String>,
+        root: impl Into<PathBuf>,
+        backend_pool: Arc<BackendPool>,
+    ) -> Self {
         Self {
             address: address.into(),
             static_files: StaticFileHandler::new(root),
-            registry
+            backend_pool,
         }
     }
 
@@ -59,7 +63,7 @@ impl ControlServer {
         let request_path = request_line.split_whitespace().nth(1).unwrap_or("/");
 
         if request_path == "/metrics" || request_path == "/api/metrics" {
-            let summary = self.registry.metrics_summary();
+            let summary = self.backend_pool.metrics_summary();
             let json = serde_json::to_string(&summary).unwrap_or_else(|_| "[]".into());
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

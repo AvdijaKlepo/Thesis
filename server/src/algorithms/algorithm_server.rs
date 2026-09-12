@@ -5,11 +5,8 @@ use tiny_http::Server;
 
 use crate::{
     Backend,
-    algorithms::{
-        algorithms::{BackendNode, LoadBalancer},
-        create_load_balancer, sync_load_balancer,
-    },
-    backend::registry::BackendRegistry,
+    algorithms::AlgorithmKind,
+    backend::{BackendPool, BackendPoolError},
     proxy::runtime::RuntimeMode,
 };
 
@@ -49,7 +46,7 @@ fn start_server_with_fallback(
     .into())
 }
 
-pub fn create_server(lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>, registry: Arc<BackendRegistry>, runtime_mode: Arc<ArcSwap<RuntimeMode>>) {
+pub fn create_server(backend_pool: Arc<BackendPool>, runtime_mode: Arc<ArcSwap<RuntimeMode>>) {
     let server = match start_server_with_fallback("127.0.0.1", 7880, 10) {
         Ok(server) => server,
         Err(e) => {
@@ -59,36 +56,34 @@ pub fn create_server(lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>, registry: Arc
     };
 
     for request in server.incoming_requests() {
-        let lb_slot = Arc::clone(&lb_slot);
-        let registry = Arc::clone(&registry);
+        let backend_pool = Arc::clone(&backend_pool);
         let runtime_mode = Arc::clone(&runtime_mode);
-        std::thread::spawn(move || handle_requests(request, lb_slot, registry, runtime_mode));
+        std::thread::spawn(move || handle_requests(request, backend_pool, runtime_mode));
     }
 }
 
 fn handle_requests(
     request: tiny_http::Request,
-    lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
-    registry: Arc<BackendRegistry>,
+    backend_pool: Arc<BackendPool>,
     runtime_mode: Arc<ArcSwap<RuntimeMode>>,
 ) {
     let path = request.url().split('?').next().unwrap_or("");
 
     match (request.method(), path) {
         (&tiny_http::Method::Post, "/algorithm") => {
-            change_algorithm(request, lb_slot, registry);
+            change_algorithm(request, backend_pool);
         }
 
         (&tiny_http::Method::Post, "/backends") => {
-            create_backends_endpoint(request, lb_slot, registry);
+            create_backends_endpoint(request, backend_pool);
         }
 
         (&tiny_http::Method::Get, "/backends") => {
-            get_backends_endpoint(request, registry);
+            get_backends_endpoint(request, backend_pool);
         }
 
         (&tiny_http::Method::Get, "/metrics") => {
-            get_metrics_endpoint(request, registry);
+            get_metrics_endpoint(request, backend_pool);
         }
 
         (&tiny_http::Method::Post, "/runtime") => {
@@ -130,13 +125,13 @@ fn handle_requests(
     }
 }
 
-fn get_metrics_endpoint(request: tiny_http::Request, registry: Arc<BackendRegistry>) {
-    let summary = registry.metrics_summary();
+fn get_metrics_endpoint(request: tiny_http::Request, backend_pool: Arc<BackendPool>) {
+    let summary = backend_pool.metrics_summary();
     let body = match serde_json::to_string(&summary) {
         Ok(body) => body,
         Err(_) => {
-            let response =
-                tiny_http::Response::from_string("Failed to serialize metrics").with_status_code(500);
+            let response = tiny_http::Response::from_string("Failed to serialize metrics")
+                .with_status_code(500);
             let _ = request.respond(response);
             return;
         }
@@ -150,13 +145,17 @@ fn get_metrics_endpoint(request: tiny_http::Request, registry: Arc<BackendRegist
     let _ = request.respond(response);
 }
 
-fn get_backends_endpoint(request: tiny_http::Request, registry: Arc<BackendRegistry>) {
-    let backends: Vec<Backend> = registry.all().into_iter().map(|n| n.backend).collect();
+fn get_backends_endpoint(request: tiny_http::Request, backend_pool: Arc<BackendPool>) {
+    let backends: Vec<Backend> = backend_pool
+        .backends()
+        .into_iter()
+        .map(|node| node.backend)
+        .collect();
     let body = match serde_json::to_string(&backends) {
         Ok(body) => body,
         Err(_) => {
-            let response =
-                tiny_http::Response::from_string("Failed to serialize backends").with_status_code(500);
+            let response = tiny_http::Response::from_string("Failed to serialize backends")
+                .with_status_code(500);
             let _ = request.respond(response);
             return;
         }
@@ -170,10 +169,13 @@ fn get_backends_endpoint(request: tiny_http::Request, registry: Arc<BackendRegis
     let _ = request.respond(response);
 }
 
-pub(crate) fn create_backends(registry: &BackendRegistry, count: usize) -> Vec<Backend> {
-    println!("Registry contains: {:?}", registry.all());
-    println!("Next ID: {}", registry.next_id());
-    let mut start_id = registry.next_id();
+pub(crate) fn create_backends(
+    backend_pool: &BackendPool,
+    count: usize,
+) -> Result<Vec<Backend>, BackendPoolError> {
+    println!("Backend pool contains: {:?}", backend_pool.backends());
+    println!("Next ID: {}", backend_pool.next_id());
+    let mut start_id = backend_pool.next_id();
 
     let mut created = Vec::with_capacity(count);
 
@@ -184,19 +186,15 @@ pub(crate) fn create_backends(registry: &BackendRegistry, count: usize) -> Vec<B
             weight: 1,
         };
 
-        registry.add(BackendNode::new(backend.clone()));
+        backend_pool.add_backend(backend.clone())?;
         created.push(backend);
         start_id += 1;
     }
 
-    created
+    Ok(created)
 }
 
-fn create_backends_endpoint(
-    request: tiny_http::Request,
-    lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
-    registry: Arc<BackendRegistry>,
-) {
+fn create_backends_endpoint(request: tiny_http::Request, backend_pool: Arc<BackendPool>) {
     let url = request.url();
 
     let count = url.split_once("?").and_then(|(_, query)| {
@@ -222,32 +220,33 @@ fn create_backends_endpoint(
         }
     };
 
-    let backends = create_backends(&registry, count);
-    sync_load_balancer(&lb_slot, &registry);
+    let backends = match create_backends(&backend_pool, count) {
+        Ok(backends) => backends,
+        Err(error) => {
+            let response =
+                tiny_http::Response::from_string(error.to_string()).with_status_code(400);
+            let _ = request.respond(response);
+            return;
+        }
+    };
 
     let body = match serde_json::to_string(&backends) {
         Ok(body) => body,
         Err(_) => {
-            let response =
-                tiny_http::Response::from_string("Failed to serialize backends")
-                    .with_status_code(500);
+            let response = tiny_http::Response::from_string("Failed to serialize backends")
+                .with_status_code(500);
 
             let _ = request.respond(response);
             return;
         }
     };
 
-    let response = tiny_http::Response::from_string(body)
-        .with_status_code(200);
+    let response = tiny_http::Response::from_string(body).with_status_code(200);
 
     let _ = request.respond(response);
 }
 
-fn change_algorithm(
-    mut request: tiny_http::Request,
-    lb_slot: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
-    registry: Arc<BackendRegistry>,
-) {
+fn change_algorithm(mut request: tiny_http::Request, backend_pool: Arc<BackendPool>) {
     if request.method() != &tiny_http::Method::Post || request.url() != "/algorithm" {
         let response = tiny_http::Response::from_string("not found").with_status_code(400);
 
@@ -268,14 +267,14 @@ fn change_algorithm(
     let trimmed = body.trim();
     let algo = serde_json::from_str::<serde_json::Value>(trimmed)
         .ok()
-        .and_then(|v| v.get("algorithm").and_then(|a| a.as_str().map(|s| s.to_string())))
+        .and_then(|v| {
+            v.get("algorithm")
+                .and_then(|a| a.as_str().map(|s| s.to_string()))
+        })
         .unwrap_or_else(|| trimmed.to_string());
 
-    let backends = registry.all();
-
-    let new_lb = match create_load_balancer(algo.trim(), backends) {
-        Some(lb) => lb,
-
+    let algorithm = match AlgorithmKind::from_str_name(algo.trim()) {
+        Some(algorithm) => algorithm,
         None => {
             let response =
                 tiny_http::Response::from_string("unknown algorithm").with_status_code(400);
@@ -284,24 +283,22 @@ fn change_algorithm(
             return;
         }
     };
-    lb_slot.store(Arc::new(new_lb));
+    backend_pool.change_algorithm(algorithm);
 
     let response = tiny_http::Response::from_string("switched").with_status_code(200);
 
     let _ = request.respond(response);
 }
 
-fn change_runtime(
-    mut request: tiny_http::Request,
-    runtime_mode: Arc<ArcSwap<RuntimeMode>>,
-) {
+fn change_runtime(mut request: tiny_http::Request, runtime_mode: Arc<ArcSwap<RuntimeMode>>) {
     let mut body = String::new();
 
     if request.as_reader().read_to_string(&mut body).is_err() {
         let response = tiny_http::Response::from_string("Invalid request body")
             .with_status_code(400)
             .with_header(
-                tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
+                tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                    .unwrap(),
             );
         let _ = request.respond(response);
         return;
@@ -325,11 +322,16 @@ fn change_runtime(
     let new_mode = match RuntimeMode::from_str_name(&mode_str) {
         Some(mode) => mode,
         None => {
-            let response = tiny_http::Response::from_string(format!("unknown runtime mode: {mode_str}"))
-                .with_status_code(400)
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
-                );
+            let response =
+                tiny_http::Response::from_string(format!("unknown runtime mode: {mode_str}"))
+                    .with_status_code(400)
+                    .with_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Access-Control-Allow-Origin"[..],
+                            &b"*"[..],
+                        )
+                        .unwrap(),
+                    );
             let _ = request.respond(response);
             return;
         }
@@ -338,7 +340,10 @@ fn change_runtime(
     runtime_mode.store(Arc::new(new_mode));
     println!("Switched proxy runtime mode to: {:?}", new_mode);
 
-    let resp_json = format!(r#"{{"status":"switched","runtime":"{}"}}"#, new_mode.as_str());
+    let resp_json = format!(
+        r#"{{"status":"switched","runtime":"{}"}}"#,
+        new_mode.as_str()
+    );
     let response = tiny_http::Response::from_string(resp_json)
         .with_status_code(200)
         .with_header(
@@ -350,10 +355,7 @@ fn change_runtime(
     let _ = request.respond(response);
 }
 
-fn get_runtime(
-    request: tiny_http::Request,
-    runtime_mode: Arc<ArcSwap<RuntimeMode>>,
-) {
+fn get_runtime(request: tiny_http::Request, runtime_mode: Arc<ArcSwap<RuntimeMode>>) {
     let mode = **runtime_mode.load();
     let resp_json = format!(r#"{{"runtime":"{}"}}"#, mode.as_str());
     let response = tiny_http::Response::from_string(resp_json)
@@ -373,13 +375,13 @@ mod tests {
 
     #[test]
     fn test_create_backends_adds_to_registry() {
-        let registry = Arc::new(BackendRegistry::new());
-        let initial_id = registry.next_id();
+        let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
+        let initial_id = backend_pool.next_id();
         assert_eq!(initial_id, 1);
 
-        let created = create_backends(&registry, 3);
+        let created = create_backends(&backend_pool, 3).unwrap();
         assert_eq!(created.len(), 3);
-        assert_eq!(registry.all().len(), 3);
+        assert_eq!(backend_pool.backends().len(), 3);
 
         assert_eq!(created[0].id, "1");
         assert_eq!(created[1].id, "2");
@@ -388,11 +390,9 @@ mod tests {
 
     #[test]
     fn test_create_backends_updates_active_balancer_without_algorithm_switch() {
-        let registry = Arc::new(BackendRegistry::new());
-        let _ = create_backends(&registry, 2);
-
-        let lb = create_load_balancer("round_robin", registry.all()).unwrap();
-        let lb_slot = Arc::new(ArcSwap::from_pointee(lb));
+        let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
+        let _ = create_backends(&backend_pool, 2).unwrap();
+        let lb_slot = backend_pool.load_balancer();
 
         assert_eq!(lb_slot.load().backends().len(), 2);
         assert_eq!(lb_slot.load().name(), "round_robin");
@@ -400,9 +400,8 @@ mod tests {
         // Simulate admin API POST /backends?count=2:
         // 1) create backends in registry
         // 2) sync active load balancer slot
-        let created_more = create_backends(&registry, 2);
+        let created_more = create_backends(&backend_pool, 2).unwrap();
         assert_eq!(created_more.len(), 2);
-        sync_load_balancer(&lb_slot, &registry);
 
         // Active balancer must immediately have 4 backends without any algorithm switch
         assert_eq!(lb_slot.load().backends().len(), 4);
@@ -419,4 +418,3 @@ mod tests {
         assert!(seen_ids.contains("4"));
     }
 }
-
