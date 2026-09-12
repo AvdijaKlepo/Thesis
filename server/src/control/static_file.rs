@@ -38,7 +38,7 @@ impl StaticFileHandler {
     }
 
     pub fn serve(&self, request_path: &str) -> io::Result<Response> {
-        let relative_path = match self.safe_path(request_path) {
+        let relative_path = match self.resolve(request_path) {
             Some(path) => path,
             None => return self.not_found(),
         };
@@ -70,9 +70,14 @@ impl StaticFileHandler {
     }
 
     fn not_found(&self) -> io::Result<Response> {
-        let contents = fs::read(self.root.join("404.html"))?;
-
-        Ok(Response::not_found("text/html; charset=utf-8", contents))
+        match fs::read(self.root.join("404.html")) {
+            Ok(contents) => Ok(Response::not_found("text/html; charset=utf-8", contents)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Response::not_found(
+                "text/plain; charset=utf-8",
+                b"404 Not Found\n".to_vec(),
+            )),
+            Err(error) => Err(error),
+        }
     }
 }
 

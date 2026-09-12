@@ -12,6 +12,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use server::{
+    ServiceRouter,
     algorithms::algorithm_server::create_server,
     config::AppConfig,
     control::ControlServer,
@@ -23,6 +24,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = AppConfig::load(&config_path)?;
     let service_registry = Arc::new(config.build_service_registry()?);
     let backend_pool = config.default_backend_pool(&service_registry)?;
+    let router = ServiceRouter::new(
+        Arc::clone(&service_registry),
+        config.server.default_service.clone(),
+    )?;
     println!("Loaded server configuration from {}", config_path.display());
 
     let admin_pool = Arc::clone(&backend_pool);
@@ -60,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         config.server.proxy_address.clone(),
         config.server.thread_pool_size,
         Arc::clone(&runtime_mode),
-        Arc::clone(&backend_pool),
+        router,
     );
 
     let proxy_handle = thread::spawn(move || {

@@ -8,12 +8,15 @@ use tokio::{
 };
 
 use crate::{
-    backend::{BackendPool, backend_server::Feedback},
+    backend::backend_server::Feedback,
+    control::StaticFileHandler,
     proxy::connection::{
         ActiveConnectionGuard, CONNECT_TIMEOUT, ClientRequest, MAX_BODY_SIZE, MAX_HEADER_SIZE,
         MAX_RETRIES, ProxyResult, READ_TIMEOUT, WRITE_TIMEOUT, find_header_end,
-        prepare_upstream_request, service_unavailable_response,
+        internal_server_error_response, prepare_upstream_request, request_route,
+        service_unavailable_response,
     },
+    service::{ServiceRouter, ServiceTarget},
 };
 
 /// Controls how new proxy connections are dispatched.
@@ -229,6 +232,7 @@ pub async fn read_http_request_async<R: AsyncReadExt + Unpin>(
     let first_line = header_str.lines().next().unwrap_or("");
     let method = first_line.split_whitespace().next().unwrap_or("GET");
     let is_idempotent = matches!(method, "GET" | "HEAD" | "OPTIONS" | "PUT" | "DELETE");
+    let (host, path) = request_route(&header_str, first_line);
 
     let is_http_10 = first_line.contains("HTTP/1.0");
     let has_close = header_str.lines().any(|l| {
@@ -364,6 +368,8 @@ pub async fn read_http_request_async<R: AsyncReadExt + Unpin>(
     Ok(Some(ClientRequest {
         raw: buffer,
         header_end: header_end_idx,
+        host,
+        path,
         is_idempotent,
         keep_alive,
     }))
@@ -483,7 +489,7 @@ pub async fn forward_response_stream_async<R: AsyncReadExt + Unpin, W: AsyncWrit
 
 pub async fn proxy_connections_async(
     mut client: TokioTcpStream,
-    backend_pool: &BackendPool,
+    router: &ServiceRouter,
 ) -> Option<ProxyResult> {
     println!("Proxy connection received (async)");
     let mut last_result = None;
@@ -510,6 +516,50 @@ pub async fn proxy_connections_async(
             req.keep_alive
         );
 
+        let service = router.resolve(req.host.as_deref(), &req.path);
+        let service_id = service.id.clone();
+        let backend_pool = match &service.target {
+            ServiceTarget::Proxy(pool) => Arc::clone(pool),
+            ServiceTarget::Static { root } => {
+                let start = Instant::now();
+                let root = root.clone();
+                let path = req.path.clone();
+                let (response, served) = match tokio::task::spawn_blocking(move || {
+                    StaticFileHandler::new(root).serve(&path)
+                })
+                .await
+                {
+                    Ok(Ok(response)) => (response.to_http(), true),
+                    Ok(Err(error)) => {
+                        eprintln!("Static service '{service_id}' failed: {error}");
+                        (internal_server_error_response(), false)
+                    }
+                    Err(error) => {
+                        eprintln!("Static service '{service_id}' task failed: {error}");
+                        (internal_server_error_response(), false)
+                    }
+                };
+                let write_result = timeout(WRITE_TIMEOUT, async {
+                    client.write_all(&response).await?;
+                    client.flush().await
+                })
+                .await;
+                return Some(ProxyResult {
+                    service_id,
+                    backend_id: "static".into(),
+                    latency: start.elapsed(),
+                    success: served && matches!(write_result, Ok(Ok(()))),
+                    bytes_sent: 0,
+                    bytes_received: response.len(),
+                });
+            }
+        };
+
+        println!(
+            "Routing host={:?} path={} to service={} [async]",
+            req.host, req.path, service_id
+        );
+
         let upstream_req = prepare_upstream_request(&req.raw);
         let mut attempt = 0;
         let mut request_succeeded = false;
@@ -524,6 +574,7 @@ pub async fn proxy_connections_async(
                     let _ = client.write_all(&response).await;
                     let _ = client.flush().await;
                     return Some(ProxyResult {
+                        service_id,
                         backend_id: "none".into(),
                         latency: start.elapsed(),
                         success: false,
@@ -619,6 +670,7 @@ pub async fn proxy_connections_async(
                     guard.complete(&feedback, upstream_req.len(), bytes_sent_to_client);
 
                     last_result = Some(ProxyResult {
+                        service_id: service_id.clone(),
                         backend_id: backend.backend.id.clone(),
                         latency,
                         success: true,
@@ -661,6 +713,7 @@ pub async fn proxy_connections_async(
             let _ = client.flush().await;
 
             last_result = Some(ProxyResult {
+                service_id,
                 backend_id: "none".into(),
                 latency: std::time::Duration::ZERO,
                 success: false,
@@ -681,12 +734,32 @@ pub async fn proxy_connections_async(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithms::AlgorithmKind;
-    use std::io::Cursor;
+    use crate::{
+        Backend,
+        algorithms::AlgorithmKind,
+        backend::BackendPool,
+        service::{RouteMatcher, Service, ServiceRegistry},
+    };
+    use std::{io::Cursor, path::PathBuf};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
     };
+
+    fn single_service_router(backend_pool: BackendPool) -> ServiceRouter {
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(
+                Service::proxy(
+                    "default",
+                    vec![RouteMatcher::new(None::<String>, "/").unwrap()],
+                    Arc::new(backend_pool),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        ServiceRouter::new(registry, "default").unwrap()
+    }
 
     #[test]
     fn test_runtime_mode_parsing() {
@@ -806,14 +879,135 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
-        let result = proxy_connections_async(stream, &backend_pool)
-            .await
-            .unwrap();
+        let router = single_service_router(backend_pool);
+        let result = proxy_connections_async(stream, &router).await.unwrap();
         let response = client.await.unwrap();
 
         assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert_eq!(result.service_id, "default");
         assert_eq!(result.backend_id, "none");
         assert!(!result.success);
         assert_eq!(result.bytes_sent, 0);
+    }
+
+    #[tokio::test]
+    async fn routes_request_to_matching_service_async() {
+        let upstream_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_address = upstream_listener.local_addr().unwrap();
+        let upstream = tokio::spawn(async move {
+            let (mut stream, _) = upstream_listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            let bytes = stream.read(&mut request).await.unwrap();
+            assert!(
+                String::from_utf8_lossy(&request[..bytes]).starts_with("GET /live/lap?session=1")
+            );
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\ntelemetry")
+                .await
+                .unwrap();
+        });
+
+        let registry = Arc::new(ServiceRegistry::new());
+        for (service_id, backend_id, route) in [
+            ("default", "default-backend", "/fallback"),
+            ("telemetry", "telemetry-backend", "/live"),
+        ] {
+            let pool = BackendPool::new(
+                AlgorithmKind::RoundRobin,
+                vec![Backend {
+                    id: backend_id.into(),
+                    address: upstream_address.to_string(),
+                    weight: 1,
+                }],
+            )
+            .unwrap();
+            let host = (service_id == "telemetry").then_some("telemetry.example");
+            registry
+                .add(
+                    Service::proxy(
+                        service_id,
+                        vec![RouteMatcher::new(host, route).unwrap()],
+                        Arc::new(pool),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        }
+        let router = ServiceRouter::new(registry, "default").unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(address).await.unwrap();
+            stream
+                .write_all(
+                    b"GET /live/lap?session=1 HTTP/1.1\r\nHost: telemetry.example:7879\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await.unwrap();
+            response
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let result = proxy_connections_async(stream, &router).await.unwrap();
+        let response = client.await.unwrap();
+        upstream.await.unwrap();
+
+        assert!(response.ends_with("telemetry"));
+        assert_eq!(result.service_id, "telemetry");
+        assert_eq!(result.backend_id, "telemetry-backend");
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn serves_matching_static_service_async() {
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(
+                Service::proxy(
+                    "default",
+                    vec![RouteMatcher::new(None::<String>, "/fallback").unwrap()],
+                    Arc::new(BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        registry
+            .add(
+                Service::static_files(
+                    "dashboard",
+                    vec![RouteMatcher::new(Some("dashboard.example"), "/").unwrap()],
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let router = ServiceRouter::new(registry, "default").unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(address).await.unwrap();
+            stream
+                .write_all(
+                    b"GET / HTTP/1.1\r\nHost: dashboard.example\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await.unwrap();
+            response
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let result = proxy_connections_async(stream, &router).await.unwrap();
+        let response = client.await.unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert_eq!(result.service_id, "dashboard");
+        assert_eq!(result.backend_id, "static");
+        assert!(result.success);
     }
 }

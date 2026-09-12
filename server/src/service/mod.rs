@@ -58,6 +58,35 @@ pub struct Service {
     pub target: ServiceTarget,
 }
 
+#[derive(Clone)]
+pub struct ServiceRouter {
+    registry: Arc<ServiceRegistry>,
+    default_service: Arc<Service>,
+}
+
+impl ServiceRouter {
+    pub fn new(
+        registry: Arc<ServiceRegistry>,
+        default_service_id: impl Into<String>,
+    ) -> Result<Self, ServiceRegistryError> {
+        let default_service_id = default_service_id.into();
+        let default_service = registry
+            .get(&default_service_id)
+            .ok_or(ServiceRegistryError::ServiceNotFound(default_service_id))?;
+
+        Ok(Self {
+            registry,
+            default_service,
+        })
+    }
+
+    pub fn resolve(&self, host: Option<&str>, path: &str) -> Arc<Service> {
+        self.registry
+            .resolve(host, path)
+            .unwrap_or_else(|| Arc::clone(&self.default_service))
+    }
+}
+
 impl Service {
     pub fn proxy(
         id: impl Into<String>,
@@ -209,7 +238,22 @@ impl ServiceRegistry {
 }
 
 fn normalize_host(host: &str) -> String {
-    host.trim().trim_end_matches('.').to_ascii_lowercase()
+    let host = host.trim();
+    let host_without_port = if let Some(bracketed) = host.strip_prefix('[') {
+        bracketed
+            .split_once(']')
+            .map(|(address, _)| address)
+            .unwrap_or(host)
+    } else if host.matches(':').count() == 1 {
+        host.rsplit_once(':')
+            .filter(|(_, port)| port.parse::<u16>().is_ok())
+            .map(|(name, _)| name)
+            .unwrap_or(host)
+    } else {
+        host
+    };
+
+    host_without_port.trim_end_matches('.').to_ascii_lowercase()
 }
 
 fn normalize_path_prefix(path_prefix: &str) -> Result<String, ServiceRegistryError> {
@@ -374,5 +418,42 @@ mod tests {
         let proxy_service =
             Service::proxy("api", vec![route(None, "/api")], pool("1", 8081)).unwrap();
         assert!(proxy_service.proxy_pool().is_some());
+    }
+
+    #[test]
+    fn router_falls_back_and_ignores_host_ports() {
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(
+                Service::proxy(
+                    "default",
+                    vec![route(None, "/fallback")],
+                    pool("default", 8081),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        registry
+            .add(
+                Service::proxy(
+                    "telemetry",
+                    vec![route(Some("telemetry.example.com"), "/live")],
+                    pool("telemetry", 8082),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let router = ServiceRouter::new(registry, "default").unwrap();
+
+        assert_eq!(
+            router
+                .resolve(Some("TELEMETRY.EXAMPLE.COM:7879"), "/live/lap")
+                .id,
+            "telemetry"
+        );
+        assert_eq!(
+            router.resolve(Some("other.example"), "/unknown").id,
+            "default"
+        );
     }
 }

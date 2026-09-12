@@ -240,7 +240,7 @@ impl AppConfig {
             })?;
         if default_service.kind != ServiceKind::Proxy {
             return Err(ConfigError::Invalid(format!(
-                "default service '{}' must be a proxy service until service routing is enabled",
+                "default service '{}' must be a proxy service while the control APIs use its backend pool",
                 self.server.default_service
             )));
         }

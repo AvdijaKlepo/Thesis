@@ -5,7 +5,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::backend::{BackendPool, backend_server::Feedback};
+use crate::{
+    backend::backend_server::Feedback,
+    control::StaticFileHandler,
+    service::{ServiceRouter, ServiceTarget},
+};
 
 pub struct ActiveConnectionGuard {
     metrics: Arc<crate::backend::backend_server::BackendMetrics>,
@@ -60,12 +64,61 @@ pub fn service_unavailable_response() -> Vec<u8> {
     .into_bytes()
 }
 
+pub fn internal_server_error_response() -> Vec<u8> {
+    let body = "500 Internal Server Error\n";
+    format!(
+        "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n{}",
+        body.len(),
+        body
+    )
+    .into_bytes()
+}
+
 #[derive(Clone, Debug)]
 pub struct ClientRequest {
     pub raw: Vec<u8>,
     pub header_end: usize,
+    pub host: Option<String>,
+    pub path: String,
     pub is_idempotent: bool,
     pub keep_alive: bool,
+}
+
+pub fn request_route(header_str: &str, first_line: &str) -> (Option<String>, String) {
+    let target = first_line.split_whitespace().nth(1).unwrap_or("/");
+    let (authority, path) = split_request_target(target);
+    let host = header_str
+        .lines()
+        .skip(1)
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case("host")
+                .then(|| value.trim().to_string())
+        })
+        .filter(|value| !value.is_empty())
+        .or(authority);
+
+    (host, path)
+}
+
+fn split_request_target(target: &str) -> (Option<String>, String) {
+    let (authority, path_and_query) = if let Some((_, remainder)) = target.split_once("://") {
+        let boundary = remainder.find(['/', '?']).unwrap_or(remainder.len());
+        let authority = remainder[..boundary].to_string();
+        let path = remainder.get(boundary..).unwrap_or("/");
+        (Some(authority), path)
+    } else {
+        (None, target)
+    };
+    let path = path_and_query.split(['?', '#']).next().unwrap_or("/");
+    let path = if path.starts_with('/') && !path.is_empty() {
+        path.to_string()
+    } else {
+        "/".to_string()
+    };
+
+    (authority.filter(|value| !value.is_empty()), path)
 }
 
 pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<ClientRequest>> {
@@ -101,6 +154,7 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
     let first_line = header_str.lines().next().unwrap_or("");
     let method = first_line.split_whitespace().next().unwrap_or("GET");
     let is_idempotent = matches!(method, "GET" | "HEAD" | "OPTIONS" | "PUT" | "DELETE");
+    let (host, path) = request_route(&header_str, first_line);
 
     let is_http_10 = first_line.contains("HTTP/1.0");
     let has_close = header_str.lines().any(|l| {
@@ -236,6 +290,8 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
     Ok(Some(ClientRequest {
         raw: buffer,
         header_end: header_end_idx,
+        host,
+        path,
         is_idempotent,
         keep_alive,
     }))
@@ -353,7 +409,7 @@ pub fn forward_response_stream<R: Read, W: Write>(
     Ok((total_written, status_code))
 }
 
-pub fn proxy_connections(mut client: TcpStream, backend_pool: &BackendPool) -> Option<ProxyResult> {
+pub fn proxy_connections(mut client: TcpStream, router: &ServiceRouter) -> Option<ProxyResult> {
     println!("Proxy connection received");
     let _ = client.set_read_timeout(Some(READ_TIMEOUT));
     let _ = client.set_write_timeout(Some(WRITE_TIMEOUT));
@@ -381,6 +437,38 @@ pub fn proxy_connections(mut client: TcpStream, backend_pool: &BackendPool) -> O
             req.keep_alive
         );
 
+        let service = router.resolve(req.host.as_deref(), &req.path);
+        let service_id = service.id.clone();
+        let backend_pool = match &service.target {
+            ServiceTarget::Proxy(pool) => Arc::clone(pool),
+            ServiceTarget::Static { root } => {
+                let start = Instant::now();
+                let (response, served) = match StaticFileHandler::new(root.clone()).serve(&req.path)
+                {
+                    Ok(response) => (response.to_http(), true),
+                    Err(error) => {
+                        eprintln!("Static service '{service_id}' failed: {error}");
+                        (internal_server_error_response(), false)
+                    }
+                };
+                let success =
+                    served && client.write_all(&response).is_ok() && client.flush().is_ok();
+                return Some(ProxyResult {
+                    service_id,
+                    backend_id: "static".into(),
+                    latency: start.elapsed(),
+                    success,
+                    bytes_sent: 0,
+                    bytes_received: response.len(),
+                });
+            }
+        };
+
+        println!(
+            "Routing host={:?} path={} to service={}",
+            req.host, req.path, service_id
+        );
+
         let upstream_req = prepare_upstream_request(&req.raw);
         let mut attempt = 0;
         let mut request_succeeded = false;
@@ -395,6 +483,7 @@ pub fn proxy_connections(mut client: TcpStream, backend_pool: &BackendPool) -> O
                     let _ = client.write_all(&response);
                     let _ = client.flush();
                     return Some(ProxyResult {
+                        service_id,
                         backend_id: "none".into(),
                         latency: start.elapsed(),
                         success: false,
@@ -482,6 +571,7 @@ pub fn proxy_connections(mut client: TcpStream, backend_pool: &BackendPool) -> O
                     guard.complete(&feedback, upstream_req.len(), bytes_sent_to_client);
 
                     last_result = Some(ProxyResult {
+                        service_id: service_id.clone(),
                         backend_id: backend.backend.id.clone(),
                         latency,
                         success: true,
@@ -524,6 +614,7 @@ pub fn proxy_connections(mut client: TcpStream, backend_pool: &BackendPool) -> O
             let _ = client.flush();
 
             last_result = Some(ProxyResult {
+                service_id,
                 backend_id: "none".into(),
                 latency: Duration::ZERO,
                 success: false,
@@ -737,6 +828,7 @@ pub fn read_http_response<R: Read>(stream: &mut R) -> std::io::Result<Vec<u8>> {
 }
 
 pub struct ProxyResult {
+    pub service_id: String,
     pub backend_id: String,
     pub latency: Duration,
     pub success: bool,
@@ -747,12 +839,33 @@ pub struct ProxyResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithms::AlgorithmKind;
+    use crate::{
+        Backend,
+        algorithms::AlgorithmKind,
+        backend::BackendPool,
+        service::{RouteMatcher, Service, ServiceRegistry},
+    };
     use std::{
         io::{Cursor, Read, Write},
         net::{TcpListener, TcpStream},
+        path::PathBuf,
         thread,
     };
+
+    fn single_service_router(backend_pool: BackendPool) -> ServiceRouter {
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(
+                Service::proxy(
+                    "default",
+                    vec![RouteMatcher::new(None::<String>, "/").unwrap()],
+                    Arc::new(backend_pool),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        ServiceRouter::new(registry, "default").unwrap()
+    }
 
     #[test]
     fn test_content_length() {
@@ -903,6 +1016,19 @@ mod tests {
     }
 
     #[test]
+    fn request_route_extracts_host_and_path() {
+        let headers = "GET http://origin.example/live/lap?session=1 HTTP/1.1\r\nHost: TELEMETRY.EXAMPLE:7879\r\n\r\n";
+        let (host, path) = request_route(headers, headers.lines().next().unwrap());
+        assert_eq!(host.as_deref(), Some("TELEMETRY.EXAMPLE:7879"));
+        assert_eq!(path, "/live/lap");
+
+        let absolute = "GET http://origin.example:8080/status?full=true HTTP/1.1";
+        let (host, path) = request_route(absolute, absolute);
+        assert_eq!(host.as_deref(), Some("origin.example:8080"));
+        assert_eq!(path, "/status");
+    }
+
+    #[test]
     fn test_forward_response_stream_streaming() {
         let raw_resp = b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nHello World!";
         let mut upstream = Cursor::new(raw_resp);
@@ -931,12 +1057,132 @@ mod tests {
 
         let (stream, _) = listener.accept().unwrap();
         let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
-        let result = proxy_connections(stream, &backend_pool).unwrap();
+        let router = single_service_router(backend_pool);
+        let result = proxy_connections(stream, &router).unwrap();
         let response = client.join().unwrap();
 
         assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert_eq!(result.service_id, "default");
         assert_eq!(result.backend_id, "none");
         assert!(!result.success);
         assert_eq!(result.bytes_sent, 0);
+    }
+
+    #[test]
+    fn routes_request_to_matching_service() {
+        let upstream_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream_address = upstream_listener.local_addr().unwrap();
+        let upstream = thread::spawn(move || {
+            let (mut stream, _) = upstream_listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let bytes = stream.read(&mut request).unwrap();
+            assert!(
+                String::from_utf8_lossy(&request[..bytes]).starts_with("GET /live/lap?session=1")
+            );
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\ntelemetry")
+                .unwrap();
+        });
+
+        let registry = Arc::new(ServiceRegistry::new());
+        for (service_id, backend_id, route) in [
+            ("default", "default-backend", "/fallback"),
+            ("telemetry", "telemetry-backend", "/live"),
+        ] {
+            let pool = BackendPool::new(
+                AlgorithmKind::RoundRobin,
+                vec![Backend {
+                    id: backend_id.into(),
+                    address: upstream_address.to_string(),
+                    weight: 1,
+                }],
+            )
+            .unwrap();
+            let host = (service_id == "telemetry").then_some("telemetry.example");
+            registry
+                .add(
+                    Service::proxy(
+                        service_id,
+                        vec![RouteMatcher::new(host, route).unwrap()],
+                        Arc::new(pool),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        }
+        let router = ServiceRouter::new(registry, "default").unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream
+                .write_all(
+                    b"GET /live/lap?session=1 HTTP/1.1\r\nHost: telemetry.example:7879\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        });
+
+        let (stream, _) = listener.accept().unwrap();
+        let result = proxy_connections(stream, &router).unwrap();
+        let response = client.join().unwrap();
+        upstream.join().unwrap();
+
+        assert!(response.ends_with("telemetry"));
+        assert_eq!(result.service_id, "telemetry");
+        assert_eq!(result.backend_id, "telemetry-backend");
+        assert!(result.success);
+    }
+
+    #[test]
+    fn serves_matching_static_service() {
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(
+                Service::proxy(
+                    "default",
+                    vec![RouteMatcher::new(None::<String>, "/fallback").unwrap()],
+                    Arc::new(BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        registry
+            .add(
+                Service::static_files(
+                    "dashboard",
+                    vec![RouteMatcher::new(Some("dashboard.example"), "/").unwrap()],
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let router = ServiceRouter::new(registry, "default").unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream
+                .write_all(
+                    b"GET / HTTP/1.1\r\nHost: dashboard.example\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        });
+
+        let (stream, _) = listener.accept().unwrap();
+        let result = proxy_connections(stream, &router).unwrap();
+        let response = client.join().unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert_eq!(result.service_id, "dashboard");
+        assert_eq!(result.backend_id, "static");
+        assert!(result.success);
     }
 }
