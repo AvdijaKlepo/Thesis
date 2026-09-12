@@ -44,176 +44,459 @@ impl Drop for ActiveConnectionGuard {
     }
 }
 
+pub const MAX_BODY_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
+pub const MAX_HEADER_SIZE: usize = 64 * 1024; // 64 KiB
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
+pub const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+pub const MAX_RETRIES: usize = 2;
+
+#[derive(Clone, Debug)]
+pub struct ClientRequest {
+    pub raw: Vec<u8>,
+    pub header_end: usize,
+    pub is_idempotent: bool,
+    pub keep_alive: bool,
+}
+
+pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<ClientRequest>> {
+    let mut buffer = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 2048];
+    let mut header_end = None;
+
+    while header_end.is_none() {
+        let n = stream.read(&mut chunk)?;
+        if n == 0 {
+            if buffer.is_empty() {
+                return Ok(None);
+            }
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Connection closed while reading request headers",
+            ));
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if let Some(end) = find_header_end(&buffer) {
+            header_end = Some(end);
+        } else if buffer.len() > MAX_HEADER_SIZE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Request headers exceeded maximum allowed size",
+            ));
+        }
+    }
+
+    let header_end_idx = header_end.unwrap();
+    let header_str = String::from_utf8_lossy(&buffer[..header_end_idx]);
+
+    let first_line = header_str.lines().next().unwrap_or("");
+    let method = first_line.split_whitespace().next().unwrap_or("GET");
+    let is_idempotent = matches!(method, "GET" | "HEAD" | "OPTIONS" | "PUT" | "DELETE");
+
+    let is_http_10 = first_line.contains("HTTP/1.0");
+    let has_close = header_str.lines().any(|l| {
+        l.split_once(':').map_or(false, |(k, v)| {
+            k.trim().eq_ignore_ascii_case("connection") && v.to_ascii_lowercase().contains("close")
+        })
+    });
+    let has_keep_alive = header_str.lines().any(|l| {
+        l.split_once(':').map_or(false, |(k, v)| {
+            k.trim().eq_ignore_ascii_case("connection") && v.to_ascii_lowercase().contains("keep-alive")
+        })
+    });
+    let keep_alive = if is_http_10 {
+        has_keep_alive
+    } else {
+        !has_close
+    };
+
+    let is_chunked = header_str.lines().any(|l| {
+        l.split_once(':').map_or(false, |(k, v)| {
+            k.trim().eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+        })
+    });
+
+    let content_length = header_str.lines().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        if k.trim().eq_ignore_ascii_case("content-length") {
+            v.trim().parse::<usize>().ok()
+        } else {
+            None
+        }
+    });
+
+    if is_chunked {
+        let mut cursor = header_end_idx;
+        loop {
+            let crlf_pos = loop {
+                if let Some(pos) = buffer[cursor..].windows(2).position(|w| w == b"\r\n") {
+                    break cursor + pos;
+                }
+                let n = stream.read(&mut chunk)?;
+                if n == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "Unexpected EOF reading request chunk size",
+                    ));
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+                if buffer.len() - header_end_idx > MAX_BODY_SIZE {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Request body exceeded 2 MiB limit",
+                    ));
+                }
+            };
+
+            let line = String::from_utf8_lossy(&buffer[cursor..crlf_pos]);
+            let hex_part = line.split(';').next().unwrap_or("").trim();
+            let chunk_size = usize::from_str_radix(hex_part, 16).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid request chunk size: {e}"))
+            })?;
+
+            if chunk_size == 0 {
+                let trailer_start = crlf_pos + 2;
+                loop {
+                    if buffer.len() >= trailer_start + 2 && &buffer[trailer_start..trailer_start + 2] == b"\r\n" {
+                        buffer.truncate(trailer_start + 2);
+                        break;
+                    }
+                    if let Some(pos) = buffer[trailer_start..].windows(4).position(|w| w == b"\r\n\r\n") {
+                        buffer.truncate(trailer_start + pos + 4);
+                        break;
+                    }
+                    let n = stream.read(&mut chunk)?;
+                    if n == 0 {
+                        break;
+                    }
+                    buffer.extend_from_slice(&chunk[..n]);
+                }
+                break;
+            }
+
+            let chunk_data_end = crlf_pos + 2 + chunk_size + 2;
+            while buffer.len() < chunk_data_end {
+                let n = stream.read(&mut chunk)?;
+                if n == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "Unexpected EOF reading request chunk data",
+                    ));
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+                if buffer.len() - header_end_idx > MAX_BODY_SIZE {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Request body exceeded 2 MiB limit",
+                    ));
+                }
+            }
+            cursor = chunk_data_end;
+        }
+    } else if let Some(cl) = content_length {
+        if cl > MAX_BODY_SIZE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Request body size ({cl} bytes) exceeds 2 MiB limit"),
+            ));
+        }
+        let total_needed = header_end_idx + cl;
+        while buffer.len() < total_needed {
+            let n = stream.read(&mut chunk)?;
+            if n == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Unexpected EOF reading request body",
+                ));
+            }
+            buffer.extend_from_slice(&chunk[..n]);
+        }
+        buffer.truncate(total_needed);
+    }
+
+    Ok(Some(ClientRequest {
+        raw: buffer,
+        header_end: header_end_idx,
+        is_idempotent,
+        keep_alive,
+    }))
+}
+
+pub fn forward_response_stream<R: Read, W: Write>(
+    upstream: &mut R,
+    client: &mut W,
+) -> std::io::Result<(usize, u16)> {
+    let mut buffer = Vec::with_capacity(4096);
+    let mut chunk_buf = [0u8; 8192];
+    let mut header_end = None;
+
+    while header_end.is_none() {
+        let n = upstream.read(&mut chunk_buf)?;
+        if n == 0 {
+            if buffer.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Empty response from upstream",
+                ));
+            }
+            client.write_all(&buffer)?;
+            client.flush()?;
+            return Ok((buffer.len(), 200));
+        }
+        buffer.extend_from_slice(&chunk_buf[..n]);
+        if let Some(pos) = find_header_end(&buffer) {
+            header_end = Some(pos);
+        }
+    }
+
+    let header_end_idx = header_end.unwrap();
+    let header_str = String::from_utf8_lossy(&buffer[..header_end_idx]);
+
+    let status_code = header_str
+        .lines()
+        .next()
+        .and_then(|line| {
+            let mut parts = line.split_whitespace();
+            parts.next()?;
+            parts.next()?.parse::<u16>().ok()
+        })
+        .unwrap_or(200);
+
+    if (100..200).contains(&status_code) || status_code == 204 || status_code == 304 {
+        client.write_all(&buffer[..header_end_idx])?;
+        client.flush()?;
+        return Ok((header_end_idx, status_code));
+    }
+
+    let is_chunked = header_str.lines().any(|line| {
+        line.split_once(':').map_or(false, |(k, v)| {
+            k.trim().eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked")
+        })
+    });
+
+    let content_length = header_str.lines().find_map(|line| {
+        let (k, v) = line.split_once(':')?;
+        if k.trim().eq_ignore_ascii_case("content-length") {
+            v.trim().parse::<usize>().ok()
+        } else {
+            None
+        }
+    });
+
+    client.write_all(&buffer)?;
+    let mut total_written = buffer.len();
+    let body_bytes_already_read = buffer.len() - header_end_idx;
+
+    if is_chunked {
+        let already_has_terminal = buffer[header_end_idx..]
+            .windows(5)
+            .any(|w| w == b"0\r\n\r\n");
+
+        if !already_has_terminal {
+            loop {
+                let n = upstream.read(&mut chunk_buf)?;
+                if n == 0 {
+                    break;
+                }
+                client.write_all(&chunk_buf[..n])?;
+                total_written += n;
+
+                if chunk_buf[..n].windows(5).any(|w| w == b"0\r\n\r\n") {
+                    break;
+                }
+            }
+        }
+    } else if let Some(cl) = content_length {
+        let mut remaining = cl.saturating_sub(body_bytes_already_read);
+        while remaining > 0 {
+            let to_read = remaining.min(chunk_buf.len());
+            let n = upstream.read(&mut chunk_buf[..to_read])?;
+            if n == 0 {
+                break;
+            }
+            client.write_all(&chunk_buf[..n])?;
+            total_written += n;
+            remaining -= n;
+        }
+    } else {
+        loop {
+            let n = upstream.read(&mut chunk_buf)?;
+            if n == 0 {
+                break;
+            }
+            client.write_all(&chunk_buf[..n])?;
+            total_written += n;
+        }
+    }
+
+    client.flush()?;
+    Ok((total_written, status_code))
+}
+
 pub fn proxy_connections(
     mut client: TcpStream,
     lb_slot: &Arc<ArcSwap<Box<dyn LoadBalancer>>>,
 ) -> Option<ProxyResult> {
     println!("Proxy connection received");
-    let mut buf = [0; 1024];
+    let _ = client.set_read_timeout(Some(READ_TIMEOUT));
+    let _ = client.set_write_timeout(Some(WRITE_TIMEOUT));
 
-    let n = match client.read(&mut buf) {
-        Ok(0) => return None,
-        Ok(n) => n,
-        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
-            println!("Client disconnected abruptly.");
-            return None;
-        }
-        Err(e) => {
-            eprintln!("Unexpected network error:{}", e);
-            return None;
-        }
-    };
-    println!("Received {} bytes from client", n);
-    println!("Request:\n{}", String::from_utf8_lossy(&buf[..n]));
+    let mut last_result = None;
 
-    let lb = lb_slot.load();
+    loop {
+        let req = match read_http_request(&mut client) {
+            Ok(Some(req)) => req,
+            Ok(None) => break,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::TimedOut && e.kind() != std::io::ErrorKind::WouldBlock {
+                    eprintln!("Error reading client request: {e}");
+                }
+                break;
+            }
+        };
 
-    let start = Instant::now();
-    let backend = lb.next();
-    let guard = ActiveConnectionGuard::new(Arc::clone(&backend.metrics));
+        println!(
+            "Received {} bytes from client (idempotent={}, keep_alive={})",
+            req.raw.len(),
+            req.is_idempotent,
+            req.keep_alive
+        );
 
-    println!(
-        "Selected backend {} at {} (active connections: {})",
-        backend.backend.id,
-        backend.backend.address,
-        backend.metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed)
-    );
+        let upstream_req = prepare_upstream_request(&req.raw);
+        let mut attempt = 0;
+        let mut request_succeeded = false;
 
-    let mut upstream = match TcpStream::connect(&backend.backend.address) {
-        Ok(stream) => stream,
-        Err(e) => {
-            eprintln!(
-                "Failed to connect to backend {}: {}",
-                backend.backend.address, e
+        while attempt <= MAX_RETRIES {
+            let lb = lb_slot.load();
+            let start = Instant::now();
+            let backend = lb.next();
+            let guard = ActiveConnectionGuard::new(Arc::clone(&backend.metrics));
+
+            println!(
+                "Attempt {}: Selected backend {} at {} (active connections: {})",
+                attempt + 1,
+                backend.backend.id,
+                backend.backend.address,
+                backend.metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed)
             );
 
-            let latency = start.elapsed();
-            let feedback = Feedback {
-                latency,
-                success: false,
+            let upstream_addr = match backend.backend.address.parse::<std::net::SocketAddr>() {
+                Ok(addr) => addr,
+                Err(_) => {
+                    let feedback = Feedback {
+                        latency: start.elapsed(),
+                        success: false,
+                    };
+                    lb.release(&backend, feedback.clone());
+                    guard.complete(&feedback, 0, 0);
+                    attempt += 1;
+                    continue;
+                }
             };
 
-            lb.release(&backend, feedback.clone());
-            guard.complete(&feedback, 0, 0);
+            let mut upstream = match TcpStream::connect_timeout(&upstream_addr, CONNECT_TIMEOUT) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Failed to connect to backend {}: {e}", backend.backend.address);
+                    let feedback = Feedback {
+                        latency: start.elapsed(),
+                        success: false,
+                    };
+                    lb.release(&backend, feedback.clone());
+                    guard.complete(&feedback, 0, 0);
+                    attempt += 1;
+                    continue;
+                }
+            };
 
-            return Some(ProxyResult {
-                backend_id: backend.backend.id,
-                latency,
-                success: false,
-                bytes_sent: 0,
-                bytes_received: 0,
-            });
+            let _ = upstream.set_read_timeout(Some(READ_TIMEOUT));
+            let _ = upstream.set_write_timeout(Some(WRITE_TIMEOUT));
+
+            if let Err(e) = upstream.write_all(&upstream_req) {
+                eprintln!("Failed to write to backend {}: {e}", backend.backend.address);
+                let feedback = Feedback {
+                    latency: start.elapsed(),
+                    success: false,
+                };
+                lb.release(&backend, feedback.clone());
+                guard.complete(&feedback, upstream_req.len(), 0);
+
+                if req.is_idempotent {
+                    attempt += 1;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+
+            match forward_response_stream(&mut upstream, &mut client) {
+                Ok((bytes_sent_to_client, _status)) => {
+                    let latency = start.elapsed();
+                    let feedback = Feedback {
+                        latency,
+                        success: true,
+                    };
+                    lb.release(&backend, feedback.clone());
+                    guard.complete(&feedback, upstream_req.len(), bytes_sent_to_client);
+
+                    last_result = Some(ProxyResult {
+                        backend_id: backend.backend.id.clone(),
+                        latency,
+                        success: true,
+                        bytes_sent: upstream_req.len(),
+                        bytes_received: bytes_sent_to_client,
+                    });
+                    request_succeeded = true;
+                    break;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Failed forwarding response from backend {}: {e}",
+                        backend.backend.address
+                    );
+                    let feedback = Feedback {
+                        latency: start.elapsed(),
+                        success: false,
+                    };
+                    lb.release(&backend, feedback.clone());
+                    guard.complete(&feedback, upstream_req.len(), 0);
+
+                    if req.is_idempotent {
+                        attempt += 1;
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
-    };
-    let upstream_req = prepare_upstream_request(&buf[..n]);
 
-    if let Err(e) = upstream.write_all(&upstream_req) {
-        eprintln!("Failed to send request to backend: {e}");
+        if !request_succeeded {
+            let error_body = "502 Bad Gateway: All backend attempts failed\n";
+            let error_resp = format!(
+                "HTTP/1.1 502 Bad Gateway\r\nContent-Length: {}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n{}",
+                error_body.len(),
+                error_body
+            );
+            let _ = client.write_all(error_resp.as_bytes());
+            let _ = client.flush();
 
-        let latency = start.elapsed();
-        let feedback = Feedback {
-            latency,
-            success: false,
-        };
-
-        lb.release(&backend, feedback.clone());
-        guard.complete(&feedback, upstream_req.len(), 0);
-
-        return Some(ProxyResult {
-            backend_id: backend.backend.id,
-            latency,
-            success: false,
-            bytes_sent: upstream_req.len(),
-            bytes_received: 0,
-        });
-    }
-
-    let resp = match read_http_response(&mut upstream) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Failed to read response from backend: {e}");
-
-            let latency = start.elapsed();
-            let feedback = Feedback {
-                latency,
-                success: false,
-            };
-
-            lb.release(&backend, feedback.clone());
-            guard.complete(&feedback, upstream_req.len(), 0);
-
-            return Some(ProxyResult {
-                backend_id: backend.backend.id,
-                latency,
+            last_result = Some(ProxyResult {
+                backend_id: "none".into(),
+                latency: Duration::ZERO,
                 success: false,
                 bytes_sent: upstream_req.len(),
-                bytes_received: 0,
+                bytes_received: error_resp.len(),
             });
+            break;
         }
-    };
 
-    if resp.is_empty() {
-        eprintln!("Empty response from backend");
-
-        let latency = start.elapsed();
-        let feedback = Feedback {
-            latency,
-            success: false,
-        };
-
-        lb.release(&backend, feedback.clone());
-        guard.complete(&feedback, upstream_req.len(), 0);
-
-        return Some(ProxyResult {
-            backend_id: backend.backend.id,
-            latency,
-            success: false,
-            bytes_sent: upstream_req.len(),
-            bytes_received: 0,
-        });
+        if !req.keep_alive {
+            break;
+        }
     }
 
-    println!("About to write {} bytes to client", resp.len());
-
-    println!("Client peer: {:?}", client.peer_addr());
-
-    if let Err(e) = client.write_all(&resp) {
-        eprintln!("Failed to send response to client: {e}");
-
-        let latency = start.elapsed();
-        let feedback = Feedback {
-            latency,
-            success: false,
-        };
-
-        lb.release(&backend, feedback.clone());
-        guard.complete(&feedback, upstream_req.len(), resp.len());
-
-        return Some(ProxyResult {
-            backend_id: backend.backend.id,
-            latency,
-            success: false,
-            bytes_sent: upstream_req.len(),
-            bytes_received: resp.len(),
-        });
-    }
-
-    let latency = start.elapsed();
-    let feedback = Feedback {
-        latency,
-        success: true,
-    };
-
-    lb.release(&backend, feedback.clone());
-    guard.complete(&feedback, upstream_req.len(), resp.len());
-
-    return Some(ProxyResult {
-        backend_id: backend.backend.id,
-        latency,
-        success: true,
-        bytes_sent: upstream_req.len(),
-        bytes_received: resp.len(),
-    });
+    last_result
 }
 
 pub fn find_header_end(buf: &[u8]) -> Option<usize> {
@@ -519,6 +802,47 @@ mod tests {
         assert_eq!(snap.successful_requests, 0);
         assert_eq!(snap.failed_requests, 1);
     }
+
+    #[test]
+    fn test_read_http_request_large_body() {
+        // 8 KiB payload (well beyond 1 KiB limit)
+        let body = "A".repeat(8192);
+        let raw = format!(
+            "POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let mut cursor = Cursor::new(raw.as_bytes());
+        let req = read_http_request(&mut cursor).unwrap().unwrap();
+
+        assert_eq!(req.raw.len(), raw.len());
+        assert!(!req.is_idempotent); // POST
+        assert!(req.keep_alive); // HTTP/1.1 default
+        assert_eq!(&req.raw[req.header_end..], body.as_bytes());
+    }
+
+    #[test]
+    fn test_read_http_request_chunked() {
+        let raw = b"POST /stream HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n6\r\npedia \r\n0\r\n\r\n";
+        let mut cursor = Cursor::new(raw);
+        let req = read_http_request(&mut cursor).unwrap().unwrap();
+
+        assert_eq!(req.raw, raw);
+        assert!(!req.is_idempotent);
+    }
+
+    #[test]
+    fn test_forward_response_stream_streaming() {
+        let raw_resp = b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nHello World!";
+        let mut upstream = Cursor::new(raw_resp);
+        let mut client_sink = Vec::new();
+
+        let (bytes_sent, status) = forward_response_stream(&mut upstream, &mut client_sink).unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(bytes_sent, raw_resp.len());
+        assert_eq!(client_sink, raw_resp);
+    }
 }
+
 
 

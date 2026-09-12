@@ -60,6 +60,7 @@ impl BackendRegistry {
                 id: node.backend.id.clone(),
                 address: node.backend.address.clone(),
                 weight: node.backend.weight,
+                healthy: node.healthy.load(std::sync::atomic::Ordering::Relaxed),
                 metrics: node.metrics.snapshot(),
             })
             .collect()
@@ -71,6 +72,7 @@ pub struct BackendMetricsReport {
     pub id: String,
     pub address: String,
     pub weight: usize,
+    pub healthy: bool,
     pub metrics: crate::backend::backend_server::BackendMetricsSnapshot,
 }
 
@@ -179,8 +181,10 @@ mod tests {
         assert_eq!(summary[0].id, "1");
         assert_eq!(summary[0].address, "127.0.0.1:8081");
         assert_eq!(summary[0].metrics.active_connections, 0);
+        assert!(summary[0].healthy);
         assert_eq!(summary[1].id, "2");
         assert_eq!(summary[1].address, "127.0.0.1:8082");
+        assert!(summary[1].healthy);
     }
 }
 

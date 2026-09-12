@@ -1,11 +1,21 @@
-use std::{sync::Arc, thread};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+};
 
 use arc_swap::ArcSwap;
 use server::{
-    Backend, RuntimeMode, algorithms::{
+    algorithms::{
         algorithm_server::create_server,
         algorithms::{LoadBalancer, RoundRobin},
-    }, backend::registry::BackendRegistry, control::ControlServer, proxy::ProxyServer,
+    },
+    backend::registry::BackendRegistry,
+    control::ControlServer,
+    proxy::{HealthCheckConfig, HealthChecker, ProxyServer},
+    Backend, RuntimeMode,
 };
 
 fn main() {
@@ -64,6 +74,13 @@ registry.add(
         }
     });
 
+    let health_shutdown = Arc::new(AtomicBool::new(false));
+    let health_checker = Arc::new(HealthChecker::new(
+        Arc::clone(&registry),
+        HealthCheckConfig::default(),
+    ));
+    let health_handle = Arc::clone(&health_checker).start(Arc::clone(&health_shutdown));
+
     let proxy_server = ProxyServer::new("127.0.0.1:7879", 8, Arc::clone(&runtime_mode), Arc::clone(&lb_slot));
 
     let proxy_handle = thread::spawn(move || {
@@ -74,6 +91,8 @@ registry.add(
 
     control_handle.join().unwrap();
     proxy_handle.join().unwrap();
+    health_shutdown.store(true, Ordering::Relaxed);
+    let _ = health_handle.join();
 
     println!("Shutting down!");
 }
