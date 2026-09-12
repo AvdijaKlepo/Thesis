@@ -12,7 +12,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use server::{
-    ServiceRouter,
+    Observability, ServiceRouter,
     algorithms::algorithm_server::create_server,
     config::AppConfig,
     control::ControlServer,
@@ -28,21 +28,46 @@ fn main() -> Result<(), Box<dyn Error>> {
         Arc::clone(&service_registry),
         config.server.default_service.clone(),
     )?;
-    println!("Loaded server configuration from {}", config_path.display());
+    let observability = Arc::new(Observability::new(
+        service_registry
+            .all()
+            .into_iter()
+            .map(|service| service.id.clone()),
+        config.observability.log_requests,
+    ));
+    eprintln!("Loaded server configuration from {}", config_path.display());
 
     let admin_pool = Arc::clone(&backend_pool);
     let runtime_mode = Arc::new(ArcSwap::from_pointee(config.server.runtime));
 
     let admin_address = config.server.admin_address.clone();
     let admin_runtime_mode = Arc::clone(&runtime_mode);
-    thread::spawn(move || create_server(admin_address, admin_pool, admin_runtime_mode));
+    let admin_registry = Arc::clone(&service_registry);
+    let admin_observability = Arc::clone(&observability);
+    thread::spawn(move || {
+        create_server(
+            admin_address,
+            admin_pool,
+            admin_runtime_mode,
+            admin_registry,
+            admin_observability,
+        )
+    });
 
     let control_pool = Arc::clone(&backend_pool);
     let control_address = config.server.control_address.clone();
     let web_root = config.server.web_root.clone();
+    let control_registry = Arc::clone(&service_registry);
+    let control_observability = Arc::clone(&observability);
 
     let control_handle = thread::spawn(move || {
-        let server = ControlServer::new(control_address, web_root, control_pool);
+        let server = ControlServer::new(
+            control_address,
+            web_root,
+            control_pool,
+            control_registry,
+            control_observability,
+        );
 
         if let Err(e) = server.run() {
             eprintln!("Control server stopped: {e}");
@@ -66,6 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         config.server.thread_pool_size,
         Arc::clone(&runtime_mode),
         router,
+        observability,
     );
 
     let proxy_handle = thread::spawn(move || {
@@ -81,7 +107,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let _ = handle.join();
     }
 
-    println!("Shutting down!");
+    eprintln!("Shutting down!");
     Ok(())
 }
 

@@ -82,6 +82,7 @@ impl StaticFileHandler {
 }
 
 pub struct Response {
+    status_code: u16,
     status: &'static str,
     content_type: &'static str,
     body: Vec<u8>,
@@ -90,6 +91,7 @@ pub struct Response {
 impl Response {
     fn ok(content_type: &'static str, body: Vec<u8>) -> Self {
         Self {
+            status_code: 200,
             status: "200 OK",
             content_type,
             body,
@@ -98,10 +100,15 @@ impl Response {
 
     fn not_found(content_type: &'static str, body: Vec<u8>) -> Self {
         Self {
+            status_code: 404,
             status: "404 NOT FOUND",
             content_type,
             body,
         }
+    }
+
+    pub fn status_code(&self) -> u16 {
+        self.status_code
     }
 
     pub fn to_http(&self) -> Vec<u8> {

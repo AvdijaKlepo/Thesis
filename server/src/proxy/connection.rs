@@ -8,6 +8,8 @@ use std::{
 use crate::{
     backend::backend_server::Feedback,
     control::StaticFileHandler,
+    observability::{Observability, RequestObservation, RequestOutcome},
+    proxy::RuntimeMode,
     service::{ServiceRouter, ServiceTarget},
 };
 
@@ -78,6 +80,7 @@ pub fn internal_server_error_response() -> Vec<u8> {
 pub struct ClientRequest {
     pub raw: Vec<u8>,
     pub header_end: usize,
+    pub method: String,
     pub host: Option<String>,
     pub path: String,
     pub is_idempotent: bool,
@@ -152,8 +155,15 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
     let header_str = String::from_utf8_lossy(&buffer[..header_end_idx]);
 
     let first_line = header_str.lines().next().unwrap_or("");
-    let method = first_line.split_whitespace().next().unwrap_or("GET");
-    let is_idempotent = matches!(method, "GET" | "HEAD" | "OPTIONS" | "PUT" | "DELETE");
+    let method = first_line
+        .split_whitespace()
+        .next()
+        .unwrap_or("GET")
+        .to_string();
+    let is_idempotent = matches!(
+        method.as_str(),
+        "GET" | "HEAD" | "OPTIONS" | "PUT" | "DELETE"
+    );
     let (host, path) = request_route(&header_str, first_line);
 
     let is_http_10 = first_line.contains("HTTP/1.0");
@@ -290,6 +300,7 @@ pub fn read_http_request<R: Read>(stream: &mut R) -> std::io::Result<Option<Clie
     Ok(Some(ClientRequest {
         raw: buffer,
         header_end: header_end_idx,
+        method,
         host,
         path,
         is_idempotent,
@@ -409,8 +420,11 @@ pub fn forward_response_stream<R: Read, W: Write>(
     Ok((total_written, status_code))
 }
 
-pub fn proxy_connections(mut client: TcpStream, router: &ServiceRouter) -> Option<ProxyResult> {
-    println!("Proxy connection received");
+pub fn proxy_connections(
+    mut client: TcpStream,
+    router: &ServiceRouter,
+    observability: &Observability,
+) -> Option<ProxyResult> {
     let _ = client.set_read_timeout(Some(READ_TIMEOUT));
     let _ = client.set_write_timeout(Some(WRITE_TIMEOUT));
 
@@ -420,61 +434,69 @@ pub fn proxy_connections(mut client: TcpStream, router: &ServiceRouter) -> Optio
         let req = match read_http_request(&mut client) {
             Ok(Some(req)) => req,
             Ok(None) => break,
-            Err(e) => {
-                if e.kind() != std::io::ErrorKind::TimedOut
-                    && e.kind() != std::io::ErrorKind::WouldBlock
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::TimedOut
+                    && error.kind() != std::io::ErrorKind::WouldBlock
                 {
-                    eprintln!("Error reading client request: {e}");
+                    eprintln!("Error reading client request: {error}");
                 }
                 break;
             }
         };
-
-        println!(
-            "Received {} bytes from client (idempotent={}, keep_alive={})",
-            req.raw.len(),
-            req.is_idempotent,
-            req.keep_alive
-        );
+        let request_id = observability.next_request_id();
+        let request_start = Instant::now();
 
         let service = router.resolve(req.host.as_deref(), &req.path);
         let service_id = service.id.clone();
         let backend_pool = match &service.target {
             ServiceTarget::Proxy(pool) => Arc::clone(pool),
             ServiceTarget::Static { root } => {
-                let start = Instant::now();
-                let (response, served) = match StaticFileHandler::new(root.clone()).serve(&req.path)
-                {
-                    Ok(response) => (response.to_http(), true),
-                    Err(error) => {
-                        eprintln!("Static service '{service_id}' failed: {error}");
-                        (internal_server_error_response(), false)
-                    }
+                let (response, status_code, served) =
+                    match StaticFileHandler::new(root.clone()).serve(&req.path) {
+                        Ok(response) => {
+                            let status_code = response.status_code();
+                            (response.to_http(), status_code, true)
+                        }
+                        Err(error) => {
+                            eprintln!("Static service '{service_id}' failed: {error}");
+                            (internal_server_error_response(), 500, false)
+                        }
+                    };
+                let written = client.write_all(&response).is_ok() && client.flush().is_ok();
+                let outcome = if !served {
+                    RequestOutcome::StaticFailure
+                } else if !written {
+                    RequestOutcome::ClientWriteFailure
+                } else {
+                    RequestOutcome::Completed
                 };
-                let success =
-                    served && client.write_all(&response).is_ok() && client.flush().is_ok();
-                return Some(ProxyResult {
+                let result = ProxyResult {
+                    request_id,
+                    runtime: RuntimeMode::ThreadPool,
                     service_id,
                     backend_id: "static".into(),
-                    latency: start.elapsed(),
-                    success,
+                    outcome,
+                    status_code,
+                    attempts: 0,
+                    latency: request_start.elapsed(),
+                    success: outcome.is_success(),
                     bytes_sent: 0,
                     bytes_received: response.len(),
-                });
+                };
+                record_request(observability, &req, &result, None);
+                return Some(result);
             }
         };
-
-        println!(
-            "Routing host={:?} path={} to service={}",
-            req.host, req.path, service_id
-        );
-
+        let algorithm = Some(backend_pool.algorithm());
         let upstream_req = prepare_upstream_request(&req.raw);
-        let mut attempt = 0;
+        let mut attempts = 0;
+        let mut total_bytes_sent = 0;
+        let mut total_bytes_received = 0;
+        let mut last_backend_id = "none".to_string();
         let mut request_succeeded = false;
 
-        while attempt <= MAX_RETRIES {
-            let start = Instant::now();
+        while attempts < MAX_RETRIES + 1 {
+            let attempt_start = Instant::now();
             let backend = match backend_pool.select_backend() {
                 Ok(backend) => backend,
                 Err(error) => {
@@ -482,145 +504,153 @@ pub fn proxy_connections(mut client: TcpStream, router: &ServiceRouter) -> Optio
                     let response = service_unavailable_response();
                     let _ = client.write_all(&response);
                     let _ = client.flush();
-                    return Some(ProxyResult {
+                    let result = ProxyResult {
+                        request_id,
+                        runtime: RuntimeMode::ThreadPool,
                         service_id,
-                        backend_id: "none".into(),
-                        latency: start.elapsed(),
+                        backend_id: last_backend_id,
+                        outcome: RequestOutcome::NoEligibleBackend,
+                        status_code: 503,
+                        attempts,
+                        latency: request_start.elapsed(),
                         success: false,
-                        bytes_sent: 0,
+                        bytes_sent: total_bytes_sent,
                         bytes_received: response.len(),
-                    });
+                    };
+                    record_request(observability, &req, &result, algorithm);
+                    return Some(result);
                 }
             };
+            attempts += 1;
+            last_backend_id = backend.backend.id.clone();
             let guard = ActiveConnectionGuard::new(Arc::clone(&backend.metrics));
 
-            println!(
-                "Attempt {}: Selected backend {} at {} (active connections: {})",
-                attempt + 1,
-                backend.backend.id,
-                backend.backend.address,
-                backend
-                    .metrics
-                    .active_connections
-                    .load(std::sync::atomic::Ordering::Relaxed)
-            );
-
             let upstream_addr = match backend.backend.address.parse::<std::net::SocketAddr>() {
-                Ok(addr) => addr,
+                Ok(address) => address,
                 Err(_) => {
                     let feedback = Feedback {
-                        latency: start.elapsed(),
+                        latency: attempt_start.elapsed(),
                         success: false,
                     };
                     backend.release(feedback.clone());
                     guard.complete(&feedback, 0, 0);
-                    attempt += 1;
                     continue;
                 }
             };
 
             let mut upstream = match TcpStream::connect_timeout(&upstream_addr, CONNECT_TIMEOUT) {
-                Ok(s) => s,
-                Err(e) => {
+                Ok(stream) => stream,
+                Err(error) => {
                     eprintln!(
-                        "Failed to connect to backend {}: {e}",
+                        "Failed to connect to backend {}: {error}",
                         backend.backend.address
                     );
                     let feedback = Feedback {
-                        latency: start.elapsed(),
+                        latency: attempt_start.elapsed(),
                         success: false,
                     };
                     backend.release(feedback.clone());
                     guard.complete(&feedback, 0, 0);
-                    attempt += 1;
                     continue;
                 }
             };
 
             let _ = upstream.set_read_timeout(Some(READ_TIMEOUT));
             let _ = upstream.set_write_timeout(Some(WRITE_TIMEOUT));
+            total_bytes_sent += upstream_req.len();
 
-            if let Err(e) = upstream.write_all(&upstream_req) {
+            if let Err(error) = upstream.write_all(&upstream_req) {
                 eprintln!(
-                    "Failed to write to backend {}: {e}",
+                    "Failed to write to backend {}: {error}",
                     backend.backend.address
                 );
                 let feedback = Feedback {
-                    latency: start.elapsed(),
+                    latency: attempt_start.elapsed(),
                     success: false,
                 };
                 backend.release(feedback.clone());
                 guard.complete(&feedback, upstream_req.len(), 0);
 
                 if req.is_idempotent {
-                    attempt += 1;
                     continue;
-                } else {
-                    break;
                 }
+                break;
             }
 
             match forward_response_stream(&mut upstream, &mut client) {
-                Ok((bytes_sent_to_client, _status)) => {
-                    let latency = start.elapsed();
+                Ok((bytes_sent_to_client, status_code)) => {
+                    let attempt_latency = attempt_start.elapsed();
                     let feedback = Feedback {
-                        latency,
+                        latency: attempt_latency,
                         success: true,
                     };
                     backend.release(feedback.clone());
                     guard.complete(&feedback, upstream_req.len(), bytes_sent_to_client);
 
-                    last_result = Some(ProxyResult {
+                    total_bytes_received += bytes_sent_to_client;
+                    let result = ProxyResult {
+                        request_id,
+                        runtime: RuntimeMode::ThreadPool,
                         service_id: service_id.clone(),
                         backend_id: backend.backend.id.clone(),
-                        latency,
+                        outcome: RequestOutcome::Completed,
+                        status_code,
+                        attempts,
+                        latency: request_start.elapsed(),
                         success: true,
-                        bytes_sent: upstream_req.len(),
-                        bytes_received: bytes_sent_to_client,
-                    });
+                        bytes_sent: total_bytes_sent,
+                        bytes_received: total_bytes_received,
+                    };
+                    record_request(observability, &req, &result, algorithm);
+                    last_result = Some(result);
                     request_succeeded = true;
                     break;
                 }
-                Err(e) => {
+                Err(error) => {
                     eprintln!(
-                        "Failed forwarding response from backend {}: {e}",
+                        "Failed forwarding response from backend {}: {error}",
                         backend.backend.address
                     );
                     let feedback = Feedback {
-                        latency: start.elapsed(),
+                        latency: attempt_start.elapsed(),
                         success: false,
                     };
                     backend.release(feedback.clone());
                     guard.complete(&feedback, upstream_req.len(), 0);
 
                     if req.is_idempotent {
-                        attempt += 1;
                         continue;
-                    } else {
-                        break;
                     }
+                    break;
                 }
             }
         }
 
         if !request_succeeded {
             let error_body = "502 Bad Gateway: All backend attempts failed\n";
-            let error_resp = format!(
+            let error_response = format!(
                 "HTTP/1.1 502 Bad Gateway\r\nContent-Length: {}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n{}",
                 error_body.len(),
                 error_body
             );
-            let _ = client.write_all(error_resp.as_bytes());
+            let _ = client.write_all(error_response.as_bytes());
             let _ = client.flush();
 
-            last_result = Some(ProxyResult {
+            let result = ProxyResult {
+                request_id,
+                runtime: RuntimeMode::ThreadPool,
                 service_id,
-                backend_id: "none".into(),
-                latency: Duration::ZERO,
+                backend_id: last_backend_id,
+                outcome: RequestOutcome::BackendAttemptsFailed,
+                status_code: 502,
+                attempts,
+                latency: request_start.elapsed(),
                 success: false,
-                bytes_sent: upstream_req.len(),
-                bytes_received: error_resp.len(),
-            });
+                bytes_sent: total_bytes_sent,
+                bytes_received: error_response.len(),
+            };
+            record_request(observability, &req, &result, algorithm);
+            last_result = Some(result);
             break;
         }
 
@@ -828,12 +858,41 @@ pub fn read_http_response<R: Read>(stream: &mut R) -> std::io::Result<Vec<u8>> {
 }
 
 pub struct ProxyResult {
+    pub request_id: u64,
+    pub runtime: RuntimeMode,
     pub service_id: String,
     pub backend_id: String,
+    pub outcome: RequestOutcome,
+    pub status_code: u16,
+    pub attempts: usize,
     pub latency: Duration,
     pub success: bool,
     pub bytes_sent: usize,
     pub bytes_received: usize,
+}
+
+pub fn record_request(
+    observability: &Observability,
+    request: &ClientRequest,
+    result: &ProxyResult,
+    algorithm: Option<crate::algorithms::AlgorithmKind>,
+) {
+    observability.record(RequestObservation {
+        request_id: result.request_id,
+        runtime: result.runtime,
+        service_id: &result.service_id,
+        algorithm,
+        backend_id: &result.backend_id,
+        method: &request.method,
+        host: request.host.as_deref(),
+        path: &request.path,
+        outcome: result.outcome,
+        status_code: result.status_code,
+        attempts: result.attempts,
+        latency: result.latency,
+        upstream_bytes_sent: result.bytes_sent,
+        downstream_bytes_sent: result.bytes_received,
+    });
 }
 
 #[cfg(test)]
@@ -1058,10 +1117,16 @@ mod tests {
         let (stream, _) = listener.accept().unwrap();
         let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
         let router = single_service_router(backend_pool);
-        let result = proxy_connections(stream, &router).unwrap();
+        let observability = Observability::new(["default"], false);
+        let result = proxy_connections(stream, &router, &observability).unwrap();
         let response = client.join().unwrap();
 
         assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert_eq!(result.request_id, 1);
+        assert_eq!(result.runtime, RuntimeMode::ThreadPool);
+        assert_eq!(result.outcome, RequestOutcome::NoEligibleBackend);
+        assert_eq!(result.status_code, 503);
+        assert_eq!(result.attempts, 0);
         assert_eq!(result.service_id, "default");
         assert_eq!(result.backend_id, "none");
         assert!(!result.success);
@@ -1110,7 +1175,8 @@ mod tests {
                 )
                 .unwrap();
         }
-        let router = ServiceRouter::new(registry, "default").unwrap();
+        let router = ServiceRouter::new(Arc::clone(&registry), "default").unwrap();
+        let observability = Observability::new(["default", "telemetry"], false);
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -1127,14 +1193,26 @@ mod tests {
         });
 
         let (stream, _) = listener.accept().unwrap();
-        let result = proxy_connections(stream, &router).unwrap();
+        let result = proxy_connections(stream, &router, &observability).unwrap();
         let response = client.join().unwrap();
         upstream.join().unwrap();
 
         assert!(response.ends_with("telemetry"));
         assert_eq!(result.service_id, "telemetry");
         assert_eq!(result.backend_id, "telemetry-backend");
+        assert_eq!(result.status_code, 200);
+        assert_eq!(result.attempts, 1);
         assert!(result.success);
+        let metrics = observability.snapshot(&registry);
+        let requests = metrics
+            .requests
+            .iter()
+            .find(|entry| {
+                entry.service_id == "telemetry" && entry.runtime == RuntimeMode::ThreadPool
+            })
+            .unwrap();
+        assert_eq!(requests.total_requests, 1);
+        assert_eq!(requests.status_2xx, 1);
     }
 
     #[test]
@@ -1177,7 +1255,8 @@ mod tests {
         });
 
         let (stream, _) = listener.accept().unwrap();
-        let result = proxy_connections(stream, &router).unwrap();
+        let observability = Observability::new(["default", "dashboard"], false);
+        let result = proxy_connections(stream, &router, &observability).unwrap();
         let response = client.join().unwrap();
 
         assert!(response.starts_with("HTTP/1.1 200 OK"));

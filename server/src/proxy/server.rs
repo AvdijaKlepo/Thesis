@@ -6,6 +6,7 @@ use std::{
 use arc_swap::ArcSwap;
 
 use crate::{
+    observability::Observability,
     proxy::connection::proxy_connections,
     proxy::runtime::{RuntimeMode, proxy_connections_async},
     service::ServiceRouter,
@@ -17,6 +18,7 @@ pub struct ProxyServer {
     pool: Arc<Mutex<ThreadPool>>,
     runtime_mode: Arc<ArcSwap<RuntimeMode>>,
     router: ServiceRouter,
+    observability: Arc<Observability>,
 }
 
 impl ProxyServer {
@@ -25,12 +27,14 @@ impl ProxyServer {
         pool_size: usize,
         runtime_mode: Arc<ArcSwap<RuntimeMode>>,
         router: ServiceRouter,
+        observability: Arc<Observability>,
     ) -> Self {
         Self {
             address: address.into(),
             pool: Arc::new(Mutex::new(ThreadPool::new(pool_size))),
             runtime_mode,
             router,
+            observability,
         }
     }
 
@@ -55,16 +59,18 @@ impl ProxyServer {
         let pool = Arc::clone(&self.pool);
         let runtime_mode = Arc::clone(&self.runtime_mode);
         let router = self.router.clone();
+        let observability = Arc::clone(&self.observability);
 
         rt.block_on(async move {
             let listener = tokio::net::TcpListener::bind(&address).await?;
-            println!("Proxy server listening on {}", address);
+            eprintln!("Proxy server listening on {}", address);
 
             loop {
                 let (stream, _addr) = listener.accept().await?;
 
                 let mode = **runtime_mode.load();
                 let router = router.clone();
+                let observability = Arc::clone(&observability);
 
                 match mode {
                     RuntimeMode::ThreadPool => {
@@ -72,23 +78,12 @@ impl ProxyServer {
                         let std_stream = stream.into_std()?;
                         let pool = Arc::clone(&pool);
                         pool.lock().unwrap().execute(move || {
-                            if let Some(result) = proxy_connections(std_stream, &router) {
-                                println!(
-                                    "Proxy request finished [thread_pool]: service={} backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",
-                                    result.service_id, result.backend_id, result.success, result.latency, result.bytes_sent, result.bytes_received
-                                );
-                            }
+                            let _ = proxy_connections(std_stream, &router, &observability);
                         });
                     }
                     RuntimeMode::Async => {
                         tokio::spawn(async move {
-                            if let Some(result) = proxy_connections_async(stream, &router).await
-                            {
-                                println!(
-                                    "Proxy request finished [async]: service={} backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",
-                                    result.service_id, result.backend_id, result.success, result.latency, result.bytes_sent, result.bytes_received
-                                );
-                            }
+                            let _ = proxy_connections_async(stream, &router, &observability).await;
                         });
                     }
                 }

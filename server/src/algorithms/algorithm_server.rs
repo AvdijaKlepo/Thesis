@@ -7,13 +7,17 @@ use crate::{
     Backend,
     algorithms::AlgorithmKind,
     backend::{BackendPool, BackendPoolError},
+    observability::Observability,
     proxy::runtime::RuntimeMode,
+    service::ServiceRegistry,
 };
 
 pub fn create_server(
     address: impl AsRef<str>,
     backend_pool: Arc<BackendPool>,
     runtime_mode: Arc<ArcSwap<RuntimeMode>>,
+    service_registry: Arc<ServiceRegistry>,
+    observability: Arc<Observability>,
 ) {
     let address = address.as_ref();
     let server = match Server::http(address) {
@@ -23,12 +27,22 @@ pub fn create_server(
             return;
         }
     };
-    println!("Admin server listening on {address}");
+    eprintln!("Admin server listening on {address}");
 
     for request in server.incoming_requests() {
         let backend_pool = Arc::clone(&backend_pool);
         let runtime_mode = Arc::clone(&runtime_mode);
-        std::thread::spawn(move || handle_requests(request, backend_pool, runtime_mode));
+        let service_registry = Arc::clone(&service_registry);
+        let observability = Arc::clone(&observability);
+        std::thread::spawn(move || {
+            handle_requests(
+                request,
+                backend_pool,
+                runtime_mode,
+                service_registry,
+                observability,
+            )
+        });
     }
 }
 
@@ -36,6 +50,8 @@ fn handle_requests(
     request: tiny_http::Request,
     backend_pool: Arc<BackendPool>,
     runtime_mode: Arc<ArcSwap<RuntimeMode>>,
+    service_registry: Arc<ServiceRegistry>,
+    observability: Arc<Observability>,
 ) {
     let path = request.url().split('?').next().unwrap_or("");
 
@@ -53,7 +69,7 @@ fn handle_requests(
         }
 
         (&tiny_http::Method::Get, "/metrics") => {
-            get_metrics_endpoint(request, backend_pool);
+            get_metrics_endpoint(request, service_registry, observability);
         }
 
         (&tiny_http::Method::Post, "/runtime") => {
@@ -95,8 +111,12 @@ fn handle_requests(
     }
 }
 
-fn get_metrics_endpoint(request: tiny_http::Request, backend_pool: Arc<BackendPool>) {
-    let summary = backend_pool.metrics_summary();
+fn get_metrics_endpoint(
+    request: tiny_http::Request,
+    service_registry: Arc<ServiceRegistry>,
+    observability: Arc<Observability>,
+) {
+    let summary = observability.snapshot(&service_registry);
     let body = match serde_json::to_string(&summary) {
         Ok(body) => body,
         Err(_) => {
@@ -143,8 +163,6 @@ pub(crate) fn create_backends(
     backend_pool: &BackendPool,
     count: usize,
 ) -> Result<Vec<Backend>, BackendPoolError> {
-    println!("Backend pool contains: {:?}", backend_pool.backends());
-    println!("Next ID: {}", backend_pool.next_id());
     let mut start_id = backend_pool.next_id();
 
     let mut created = Vec::with_capacity(count);
@@ -308,7 +326,7 @@ fn change_runtime(mut request: tiny_http::Request, runtime_mode: Arc<ArcSwap<Run
     };
 
     runtime_mode.store(Arc::new(new_mode));
-    println!("Switched proxy runtime mode to: {:?}", new_mode);
+    eprintln!("Switched proxy runtime mode to: {:?}", new_mode);
 
     let resp_json = format!(
         r#"{{"status":"switched","runtime":"{}"}}"#,

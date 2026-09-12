@@ -142,11 +142,11 @@ impl BackendServer {
     }
 
     pub fn run(&self) -> std::io::Result<()> {
-        println!("Attemptin to bind backend to :{}", self.backend.address);
+        eprintln!("Attempting to bind backend to {}", self.backend.address);
 
         let listener = TcpListener::bind(&self.backend.address)?;
 
-        println!(
+        eprintln!(
             "Backend {} listening on {}",
             self.backend.id, self.backend.address
         );

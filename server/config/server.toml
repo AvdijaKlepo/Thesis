@@ -14,6 +14,10 @@ timeout_ms = 2000
 unhealthy_threshold = 2
 healthy_threshold = 2
 
+[observability]
+# Disable stdout request events during latency-sensitive benchmark runs.
+log_requests = true
+
 [[services]]
 id = "default"
 kind = "proxy"

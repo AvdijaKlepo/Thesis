@@ -83,6 +83,8 @@ pub struct AppConfig {
     pub server: ServerSettings,
     #[serde(default)]
     pub health: HealthSettings,
+    #[serde(default)]
+    pub observability: ObservabilitySettings,
     pub services: Vec<ServiceSettings>,
 }
 
@@ -413,6 +415,18 @@ impl Default for HealthSettings {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ObservabilitySettings {
+    pub log_requests: bool,
+}
+
+impl Default for ObservabilitySettings {
+    fn default() -> Self {
+        Self { log_requests: true }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ServiceKind {
@@ -500,6 +514,7 @@ root = "web"
         assert!(!pool.fail_open());
         assert_eq!(config.server.runtime, RuntimeMode::ThreadPool);
         assert!(config.health.enabled);
+        assert!(config.observability.log_requests);
     }
 
     #[test]

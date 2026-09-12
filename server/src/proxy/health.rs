@@ -75,7 +75,7 @@ impl HealthChecker {
                     && !is_currently_healthy
                 {
                     node.healthy.store(true, Ordering::Relaxed);
-                    println!(
+                    eprintln!(
                         "Health check: backend {} at {} is now HEALTHY",
                         node.backend.id, node.backend.address
                     );
@@ -88,7 +88,7 @@ impl HealthChecker {
                     && is_currently_healthy
                 {
                     node.healthy.store(false, Ordering::Relaxed);
-                    println!(
+                    eprintln!(
                         "Health check: backend {} at {} is now UNHEALTHY",
                         node.backend.id, node.backend.address
                     );

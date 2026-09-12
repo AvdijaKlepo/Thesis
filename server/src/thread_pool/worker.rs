@@ -16,12 +16,10 @@ impl Worker {
 
                 match message {
                     Ok(job) => {
-                        println!("Worker {id} got a job; executing.");
-
                         job();
                     }
                     Err(_) => {
-                        println!("Worker {id} disconnected; shutting down.");
+                        eprintln!("Worker {id} disconnected; shutting down.");
                         break;
                     }
                 }
@@ -72,7 +70,7 @@ impl Drop for ThreadPool {
     fn drop(&mut self) {
         drop(self.sender.take());
         for worker in &mut self.workers.drain(..) {
-            println!("Shutting down worker {}", worker.id);
+            eprintln!("Shutting down worker {}", worker.id);
 
             worker.thread.join().unwrap();
         }
