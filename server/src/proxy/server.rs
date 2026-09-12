@@ -53,7 +53,7 @@ impl ProxyServer {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
 
         let address = self.address.clone();
         let pool = Arc::clone(&self.pool);
@@ -74,8 +74,10 @@ impl ProxyServer {
 
                 match mode {
                     RuntimeMode::ThreadPool => {
-                        // Convert to std stream for the blocking handler.
+                        // Tokio sockets are nonblocking. Restore blocking mode before the
+                        // stream enters the thread-pool transport.
                         let std_stream = stream.into_std()?;
+                        std_stream.set_nonblocking(false)?;
                         let pool = Arc::clone(&pool);
                         pool.lock().unwrap().execute(move || {
                             let _ = proxy_connections(std_stream, &router, &observability);
