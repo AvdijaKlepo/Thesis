@@ -1,6 +1,5 @@
 use std::{io, sync::Arc, time::Instant};
 
-use arc_swap::ArcSwap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream as TokioTcpStream,
@@ -8,12 +7,11 @@ use tokio::{
 };
 
 use crate::{
-    algorithms::algorithms::LoadBalancer,
-    backend::backend_server::Feedback,
+    backend::{BackendPool, backend_server::Feedback},
     proxy::connection::{
         ActiveConnectionGuard, CONNECT_TIMEOUT, ClientRequest, MAX_BODY_SIZE, MAX_HEADER_SIZE,
         MAX_RETRIES, ProxyResult, READ_TIMEOUT, WRITE_TIMEOUT, find_header_end,
-        prepare_upstream_request,
+        prepare_upstream_request, service_unavailable_response,
     },
 };
 
@@ -483,7 +481,7 @@ pub async fn forward_response_stream_async<R: AsyncReadExt + Unpin, W: AsyncWrit
 
 pub async fn proxy_connections_async(
     mut client: TokioTcpStream,
-    lb_slot: &Arc<ArcSwap<Box<dyn LoadBalancer>>>,
+    backend_pool: &BackendPool,
 ) -> Option<ProxyResult> {
     println!("Proxy connection received (async)");
     let mut last_result = None;
@@ -515,9 +513,23 @@ pub async fn proxy_connections_async(
         let mut request_succeeded = false;
 
         while attempt <= MAX_RETRIES {
-            let lb = lb_slot.load();
             let start = Instant::now();
-            let backend = lb.next();
+            let backend = match backend_pool.select_backend() {
+                Ok(backend) => backend,
+                Err(error) => {
+                    eprintln!("Unable to select a backend [async]: {error}");
+                    let response = service_unavailable_response();
+                    let _ = client.write_all(&response).await;
+                    let _ = client.flush().await;
+                    return Some(ProxyResult {
+                        backend_id: "none".into(),
+                        latency: start.elapsed(),
+                        success: false,
+                        bytes_sent: 0,
+                        bytes_received: response.len(),
+                    });
+                }
+            };
             let guard = ActiveConnectionGuard::new(Arc::clone(&backend.metrics));
 
             println!(
@@ -547,7 +559,7 @@ pub async fn proxy_connections_async(
                         latency: start.elapsed(),
                         success: false,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, 0, 0);
                     attempt += 1;
                     continue;
@@ -561,7 +573,7 @@ pub async fn proxy_connections_async(
                         latency: start.elapsed(),
                         success: false,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, 0, 0);
                     attempt += 1;
                     continue;
@@ -578,7 +590,7 @@ pub async fn proxy_connections_async(
                     latency: start.elapsed(),
                     success: false,
                 };
-                lb.release(&backend, feedback.clone());
+                backend.release(feedback.clone());
                 guard.complete(&feedback, upstream_req.len(), 0);
 
                 if req.is_idempotent {
@@ -601,7 +613,7 @@ pub async fn proxy_connections_async(
                         latency,
                         success: true,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, upstream_req.len(), bytes_sent_to_client);
 
                     last_result = Some(ProxyResult {
@@ -623,7 +635,7 @@ pub async fn proxy_connections_async(
                         latency: start.elapsed(),
                         success: false,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, upstream_req.len(), 0);
 
                     if req.is_idempotent {
@@ -667,7 +679,12 @@ pub async fn proxy_connections_async(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::algorithms::AlgorithmKind;
     use std::io::Cursor;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+    };
 
     #[test]
     fn test_runtime_mode_parsing() {
@@ -768,5 +785,33 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(total_written, upstream_data.len());
         assert_eq!(client_buf, upstream_data);
+    }
+
+    #[tokio::test]
+    async fn empty_pool_returns_service_unavailable_async() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(address).await.unwrap();
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await.unwrap();
+            response
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
+        let result = proxy_connections_async(stream, &backend_pool)
+            .await
+            .unwrap();
+        let response = client.await.unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert_eq!(result.backend_id, "none");
+        assert!(!result.success);
+        assert_eq!(result.bytes_sent, 0);
     }
 }

@@ -5,9 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use arc_swap::ArcSwap;
-
-use crate::{algorithms::algorithms::LoadBalancer, backend::backend_server::Feedback};
+use crate::backend::{BackendPool, backend_server::Feedback};
 
 pub struct ActiveConnectionGuard {
     metrics: Arc<crate::backend::backend_server::BackendMetrics>,
@@ -51,6 +49,16 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
 pub const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const MAX_RETRIES: usize = 2;
+
+pub fn service_unavailable_response() -> Vec<u8> {
+    let body = "503 Service Unavailable: No eligible backend\n";
+    format!(
+        "HTTP/1.1 503 Service Unavailable\r\nContent-Length: {}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n{}",
+        body.len(),
+        body
+    )
+    .into_bytes()
+}
 
 #[derive(Clone, Debug)]
 pub struct ClientRequest {
@@ -345,10 +353,7 @@ pub fn forward_response_stream<R: Read, W: Write>(
     Ok((total_written, status_code))
 }
 
-pub fn proxy_connections(
-    mut client: TcpStream,
-    lb_slot: &Arc<ArcSwap<Box<dyn LoadBalancer>>>,
-) -> Option<ProxyResult> {
+pub fn proxy_connections(mut client: TcpStream, backend_pool: &BackendPool) -> Option<ProxyResult> {
     println!("Proxy connection received");
     let _ = client.set_read_timeout(Some(READ_TIMEOUT));
     let _ = client.set_write_timeout(Some(WRITE_TIMEOUT));
@@ -381,9 +386,23 @@ pub fn proxy_connections(
         let mut request_succeeded = false;
 
         while attempt <= MAX_RETRIES {
-            let lb = lb_slot.load();
             let start = Instant::now();
-            let backend = lb.next();
+            let backend = match backend_pool.select_backend() {
+                Ok(backend) => backend,
+                Err(error) => {
+                    eprintln!("Unable to select a backend: {error}");
+                    let response = service_unavailable_response();
+                    let _ = client.write_all(&response);
+                    let _ = client.flush();
+                    return Some(ProxyResult {
+                        backend_id: "none".into(),
+                        latency: start.elapsed(),
+                        success: false,
+                        bytes_sent: 0,
+                        bytes_received: response.len(),
+                    });
+                }
+            };
             let guard = ActiveConnectionGuard::new(Arc::clone(&backend.metrics));
 
             println!(
@@ -404,7 +423,7 @@ pub fn proxy_connections(
                         latency: start.elapsed(),
                         success: false,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, 0, 0);
                     attempt += 1;
                     continue;
@@ -422,7 +441,7 @@ pub fn proxy_connections(
                         latency: start.elapsed(),
                         success: false,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, 0, 0);
                     attempt += 1;
                     continue;
@@ -441,7 +460,7 @@ pub fn proxy_connections(
                     latency: start.elapsed(),
                     success: false,
                 };
-                lb.release(&backend, feedback.clone());
+                backend.release(feedback.clone());
                 guard.complete(&feedback, upstream_req.len(), 0);
 
                 if req.is_idempotent {
@@ -459,7 +478,7 @@ pub fn proxy_connections(
                         latency,
                         success: true,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, upstream_req.len(), bytes_sent_to_client);
 
                     last_result = Some(ProxyResult {
@@ -481,7 +500,7 @@ pub fn proxy_connections(
                         latency: start.elapsed(),
                         success: false,
                     };
-                    lb.release(&backend, feedback.clone());
+                    backend.release(feedback.clone());
                     guard.complete(&feedback, upstream_req.len(), 0);
 
                     if req.is_idempotent {
@@ -728,7 +747,12 @@ pub struct ProxyResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use crate::algorithms::AlgorithmKind;
+    use std::{
+        io::{Cursor, Read, Write},
+        net::{TcpListener, TcpStream},
+        thread,
+    };
 
     #[test]
     fn test_content_length() {
@@ -889,5 +913,30 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(bytes_sent, raw_resp.len());
         assert_eq!(client_sink, raw_resp);
+    }
+
+    #[test]
+    fn empty_pool_returns_service_unavailable() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        });
+
+        let (stream, _) = listener.accept().unwrap();
+        let backend_pool = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
+        let result = proxy_connections(stream, &backend_pool).unwrap();
+        let response = client.join().unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert_eq!(result.backend_id, "none");
+        assert!(!result.success);
+        assert_eq!(result.bytes_sent, 0);
     }
 }

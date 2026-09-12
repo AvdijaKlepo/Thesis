@@ -410,7 +410,7 @@ mod tests {
         // Verify that the new backends are reachable from the active balancer
         let mut seen_ids = std::collections::HashSet::new();
         for _ in 0..8 {
-            seen_ids.insert(lb_slot.load().next().id.clone());
+            seen_ids.insert(lb_slot.load().next(false).unwrap().id.clone());
         }
         assert!(seen_ids.contains("1"));
         assert!(seen_ids.contains("2"));

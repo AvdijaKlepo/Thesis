@@ -117,9 +117,9 @@ mod tests {
         let lb_slot = ArcSwap::from_pointee(lb);
 
         // Before adding backend "3", only "1" and "2" are selected
-        assert_eq!(lb_slot.load().next().id, "1");
-        assert_eq!(lb_slot.load().next().id, "2");
-        assert_eq!(lb_slot.load().next().id, "1");
+        assert_eq!(lb_slot.load().next(false).unwrap().id, "1");
+        assert_eq!(lb_slot.load().next(false).unwrap().id, "2");
+        assert_eq!(lb_slot.load().next(false).unwrap().id, "1");
 
         // Add backend "3" to the registry
         registry.add(test_node("3", 8083, 1));
@@ -134,7 +134,9 @@ mod tests {
         assert_eq!(lb_slot.load().name(), "round_robin");
         assert_eq!(lb_slot.load().backends().len(), 3);
 
-        let ids: Vec<String> = (0..3).map(|_| lb_slot.load().next().id.clone()).collect();
+        let ids: Vec<String> = (0..3)
+            .map(|_| lb_slot.load().next(false).unwrap().id.clone())
+            .collect();
         assert!(ids.contains(&"1".to_string()));
         assert!(ids.contains(&"2".to_string()));
         assert!(ids.contains(&"3".to_string()));
@@ -158,7 +160,7 @@ mod tests {
 
         let mut counts = std::collections::HashMap::new();
         for _ in 0..800 {
-            let node = lb_slot.load().next();
+            let node = lb_slot.load().next(false).unwrap();
             *counts.entry(node.id.clone()).or_insert(0) += 1;
         }
 
@@ -180,7 +182,7 @@ mod tests {
         let lb = create_load_balancer("least_connections", registry.all()).unwrap();
         let lb_slot = ArcSwap::from_pointee(lb);
 
-        assert_eq!(lb_slot.load().next().id, "2");
+        assert_eq!(lb_slot.load().next(false).unwrap().id, "2");
 
         // Add backend "3" with 0 active connections
         let n3 = test_node("3", 8083, 1);
@@ -188,6 +190,6 @@ mod tests {
         sync_load_balancer(&lb_slot, &registry);
 
         assert_eq!(lb_slot.load().name(), "least_connections");
-        assert_eq!(lb_slot.load().next().id, "3");
+        assert_eq!(lb_slot.load().next(false).unwrap().id, "3");
     }
 }

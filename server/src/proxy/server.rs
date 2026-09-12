@@ -72,8 +72,7 @@ impl ProxyServer {
                         let std_stream = stream.into_std()?;
                         let pool = Arc::clone(&pool);
                         pool.lock().unwrap().execute(move || {
-                            let lb = backend_pool.load_balancer();
-                            if let Some(result) = proxy_connections(std_stream, &lb) {
+                            if let Some(result) = proxy_connections(std_stream, &backend_pool) {
                                 println!(
                                     "Proxy request finished [thread_pool]: backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",
                                     result.backend_id, result.success, result.latency, result.bytes_sent, result.bytes_received
@@ -83,8 +82,9 @@ impl ProxyServer {
                     }
                     RuntimeMode::Async => {
                         tokio::spawn(async move {
-                            let lb = backend_pool.load_balancer();
-                            if let Some(result) = proxy_connections_async(stream, &lb).await {
+                            if let Some(result) =
+                                proxy_connections_async(stream, &backend_pool).await
+                            {
                                 println!(
                                     "Proxy request finished [async]: backend={} success={} latency={:?} bytes_sent={} bytes_recv={}",
                                     result.backend_id, result.success, result.latency, result.bytes_sent, result.bytes_received

@@ -1,7 +1,10 @@
 use std::{
     error::Error,
     fmt::{Display, Formatter},
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use arc_swap::ArcSwap;
@@ -13,7 +16,10 @@ use crate::{
         algorithms::{BackendNode, LoadBalancer},
         create_load_balancer_for,
     },
-    backend::registry::{BackendMetricsReport, BackendRegistry},
+    backend::{
+        backend_server::Feedback,
+        registry::{BackendMetricsReport, BackendRegistry},
+    },
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,16 +45,64 @@ impl Display for BackendPoolError {
 
 impl Error for BackendPoolError {}
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackendSelectionError {
+    EmptyPool,
+    NoHealthyBackends,
+}
+
+impl Display for BackendSelectionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyPool => write!(formatter, "backend pool is empty"),
+            Self::NoHealthyBackends => write!(formatter, "backend pool has no healthy backends"),
+        }
+    }
+}
+
+impl Error for BackendSelectionError {}
+
+/// A backend selected together with the exact balancer snapshot that selected it.
+/// Keeping the snapshot alive ensures feedback is returned to the same algorithm
+/// even if the pool policy is changed while a request is in flight.
+pub struct BackendSelection {
+    node: BackendNode,
+    load_balancer: Arc<Box<dyn LoadBalancer>>,
+}
+
+impl BackendSelection {
+    pub fn release(&self, feedback: Feedback) {
+        self.load_balancer.release(&self.node, feedback);
+    }
+}
+
+impl std::ops::Deref for BackendSelection {
+    type Target = BackendNode;
+
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
+
 /// Owns the backend membership and load-balancing policy for one proxy service.
 pub struct BackendPool {
     registry: Arc<BackendRegistry>,
     algorithm: RwLock<AlgorithmKind>,
     load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
+    fail_open: AtomicBool,
     mutation_lock: Mutex<()>,
 }
 
 impl BackendPool {
     pub fn new(algorithm: AlgorithmKind, backends: Vec<Backend>) -> Result<Self, BackendPoolError> {
+        Self::new_with_fail_open(algorithm, backends, false)
+    }
+
+    pub fn new_with_fail_open(
+        algorithm: AlgorithmKind,
+        backends: Vec<Backend>,
+        fail_open: bool,
+    ) -> Result<Self, BackendPoolError> {
         validate_backends(&backends)?;
 
         let registry = Arc::new(BackendRegistry::new());
@@ -65,6 +119,7 @@ impl BackendPool {
             registry,
             algorithm: RwLock::new(algorithm),
             load_balancer,
+            fail_open: AtomicBool::new(fail_open),
             mutation_lock: Mutex::new(()),
         })
     }
@@ -77,6 +132,29 @@ impl BackendPool {
         let _mutation = self.mutation_lock.lock().unwrap();
         *self.algorithm.write().unwrap() = algorithm;
         self.rebuild_load_balancer(algorithm);
+    }
+
+    pub fn fail_open(&self) -> bool {
+        self.fail_open.load(Ordering::Relaxed)
+    }
+
+    pub fn set_fail_open(&self, fail_open: bool) {
+        self.fail_open.store(fail_open, Ordering::Relaxed);
+    }
+
+    pub fn select_backend(&self) -> Result<BackendSelection, BackendSelectionError> {
+        let load_balancer = self.load_balancer.load_full();
+        if load_balancer.backends().is_empty() {
+            return Err(BackendSelectionError::EmptyPool);
+        }
+
+        let node = load_balancer
+            .next(self.fail_open())
+            .ok_or(BackendSelectionError::NoHealthyBackends)?;
+        Ok(BackendSelection {
+            node,
+            load_balancer,
+        })
     }
 
     pub fn add_backend(&self, backend: Backend) -> Result<BackendNode, BackendPoolError> {
@@ -263,6 +341,47 @@ mod tests {
         assert!(matches!(
             pool.add_backend(backend("2", 8081, 1)),
             Err(BackendPoolError::DuplicateBackendAddress(_))
+        ));
+    }
+
+    #[test]
+    fn empty_and_unhealthy_pools_fail_closed_without_panicking() {
+        let empty = BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap();
+        assert!(matches!(
+            empty.select_backend(),
+            Err(BackendSelectionError::EmptyPool)
+        ));
+
+        let pool =
+            BackendPool::new(AlgorithmKind::RoundRobin, vec![backend("1", 8081, 1)]).unwrap();
+        pool.backends()[0]
+            .healthy
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        assert!(matches!(
+            pool.select_backend(),
+            Err(BackendSelectionError::NoHealthyBackends)
+        ));
+    }
+
+    #[test]
+    fn fail_open_must_be_enabled_explicitly() {
+        let pool = BackendPool::new_with_fail_open(
+            AlgorithmKind::RoundRobin,
+            vec![backend("1", 8081, 1)],
+            true,
+        )
+        .unwrap();
+        pool.backends()[0]
+            .healthy
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+
+        assert!(pool.fail_open());
+        assert_eq!(pool.select_backend().unwrap().id, "1");
+
+        pool.set_fail_open(false);
+        assert!(matches!(
+            pool.select_backend(),
+            Err(BackendSelectionError::NoHealthyBackends)
         ));
     }
 }

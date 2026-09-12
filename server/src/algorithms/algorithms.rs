@@ -62,7 +62,11 @@ pub fn default_backends() -> Vec<BackendNode> {
     ]
 }
 pub trait LoadBalancer: Send + Sync {
-    fn next(&self) -> BackendNode;
+    /// Selects the next eligible backend.
+    ///
+    /// When `allow_unhealthy` is false, unhealthy backends are excluded.
+    /// An empty eligible set always returns `None`.
+    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode>;
 
     fn release(&self, _backend: &BackendNode, _feedback: Feedback) {}
 
@@ -88,23 +92,18 @@ impl RoundRobin {
 }
 
 impl LoadBalancer for RoundRobin {
-    fn next(&self) -> BackendNode {
-        assert!(!self.backends.is_empty(), "backends must not be empty");
-        let healthy: Vec<&BackendNode> = self
+    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+        let eligible: Vec<&BackendNode> = self
             .backends
             .iter()
-            .filter(|b| b.healthy.load(Ordering::Relaxed))
+            .filter(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
             .collect();
+        if eligible.is_empty() {
+            return None;
+        }
 
-        let pool = if healthy.is_empty() {
-            &self.backends[..]
-        } else {
-            let i = self.counter.fetch_add(1, Ordering::Relaxed) % healthy.len();
-            return (*healthy[i]).clone();
-        };
-
-        let i = self.counter.fetch_add(1, Ordering::Relaxed) % pool.len();
-        pool[i].clone()
+        let index = self.counter.fetch_add(1, Ordering::Relaxed) % eligible.len();
+        Some(eligible[index].clone())
     }
 
     fn name(&self) -> &'static str {
@@ -144,40 +143,36 @@ impl WeightedRoundRobin {
 }
 
 impl LoadBalancer for WeightedRoundRobin {
-    fn next(&self) -> BackendNode {
-        assert!(!self.backends.is_empty(), "backends must not be empty");
+    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
         let mut state = self.state.lock().unwrap();
 
-        let any_healthy = self
-            .backends
-            .iter()
-            .any(|b| b.healthy.load(Ordering::Relaxed));
-
-        let total: i64 = self
+        let eligible: Vec<usize> = self
             .backends
             .iter()
             .enumerate()
-            .filter(|(_, b)| !any_healthy || b.healthy.load(Ordering::Relaxed))
-            .map(|(idx, _)| state[idx].effective_weight)
-            .sum();
-
-        for (idx, b) in self.backends.iter().enumerate() {
-            if !any_healthy || b.healthy.load(Ordering::Relaxed) {
-                state[idx].current += state[idx].effective_weight;
-            }
+            .filter(|(_, backend)| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            .map(|(index, _)| index)
+            .collect();
+        if eligible.is_empty() {
+            return None;
         }
 
-        let best = self
-            .backends
+        let total: i64 = eligible
             .iter()
-            .enumerate()
-            .filter(|(_, b)| !any_healthy || b.healthy.load(Ordering::Relaxed))
-            .max_by_key(|&(idx, _)| state[idx].current)
-            .map(|(idx, _)| idx)
-            .unwrap_or(0);
+            .map(|&index| state[index].effective_weight)
+            .sum();
+
+        for &index in &eligible {
+            state[index].current += state[index].effective_weight;
+        }
+
+        let best = eligible
+            .iter()
+            .copied()
+            .max_by_key(|&index| state[index].current)?;
 
         state[best].current -= total;
-        self.backends[best].clone()
+        Some(self.backends[best].clone())
     }
 
     fn name(&self) -> &'static str {
@@ -200,21 +195,12 @@ impl LeastConnections {
 }
 
 impl LoadBalancer for LeastConnections {
-    fn next(&self) -> BackendNode {
-        assert!(!self.backends.is_empty(), "backends must not be empty");
-        let any_healthy = self
-            .backends
+    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+        self.backends
             .iter()
-            .any(|b| b.healthy.load(Ordering::Relaxed));
-
-        let best = self
-            .backends
-            .iter()
-            .filter(|b| !any_healthy || b.healthy.load(Ordering::Relaxed))
+            .filter(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
             .min_by_key(|b| b.metrics.active_connections.load(Ordering::Relaxed))
-            .unwrap();
-
-        best.clone()
+            .cloned()
     }
 
     fn name(&self) -> &'static str {
@@ -237,17 +223,10 @@ impl LeastResponseTime {
 }
 
 impl LoadBalancer for LeastResponseTime {
-    fn next(&self) -> BackendNode {
-        assert!(!self.backends.is_empty(), "backends must not be empty");
-        let any_healthy = self
-            .backends
+    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+        self.backends
             .iter()
-            .any(|b| b.healthy.load(Ordering::Relaxed));
-
-        let best = self
-            .backends
-            .iter()
-            .filter(|b| !any_healthy || b.healthy.load(Ordering::Relaxed))
+            .filter(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
             .min_by(|a, b| {
                 let a_latency = a.metrics.latency_us.load(Ordering::Relaxed);
                 let b_latency = b.metrics.latency_us.load(Ordering::Relaxed);
@@ -260,9 +239,7 @@ impl LoadBalancer for LeastResponseTime {
 
                 a_score.cmp(&b_score)
             })
-            .unwrap();
-
-        best.clone()
+            .cloned()
     }
 
     fn name(&self) -> &'static str {
@@ -297,12 +274,12 @@ mod tests {
         n3.metrics.active_connections.store(2, Ordering::Relaxed);
 
         let lb = LeastConnections::new(vec![n1.clone(), n2.clone(), n3.clone()]);
-        let selected = lb.next();
+        let selected = lb.next(false).unwrap();
         assert_eq!(selected.id, "2");
 
         // When node 2 gets more connections, node 3 should be selected next
         n2.metrics.active_connections.store(4, Ordering::Relaxed);
-        let selected2 = lb.next();
+        let selected2 = lb.next(false).unwrap();
         assert_eq!(selected2.id, "3");
     }
 
@@ -312,9 +289,9 @@ mod tests {
         let n2 = test_node("2", 8082, 1);
         let lb = RoundRobin::new(vec![n1.clone(), n2.clone()]);
 
-        assert_eq!(lb.next().id, "1");
-        assert_eq!(lb.next().id, "2");
-        assert_eq!(lb.next().id, "1");
+        assert_eq!(lb.next(false).unwrap().id, "1");
+        assert_eq!(lb.next(false).unwrap().id, "2");
+        assert_eq!(lb.next(false).unwrap().id, "1");
     }
 
     #[test]
@@ -327,7 +304,7 @@ mod tests {
         let mut counts = std::collections::HashMap::new();
 
         for _ in 0..1000 {
-            let selected = lb.next();
+            let selected = lb.next(false).unwrap();
             *counts.entry(selected.id.clone()).or_insert(0) += 1;
         }
 
@@ -343,7 +320,7 @@ mod tests {
         let mut counts = std::collections::HashMap::new();
 
         for _ in 0..500 {
-            let selected = lb.next();
+            let selected = lb.next(false).unwrap();
             *counts.entry(selected.id.clone()).or_insert(0) += 1;
         }
 
@@ -359,7 +336,7 @@ mod tests {
         let n3 = test_node("3", 8083, 1);
 
         let lb = WeightedRoundRobin::new(vec![n1, n2, n3]);
-        let sequence: Vec<String> = (0..5).map(|_| lb.next().id.clone()).collect();
+        let sequence: Vec<String> = (0..5).map(|_| lb.next(false).unwrap().id.clone()).collect();
 
         // 3 + 1 + 1 = 5 selections: node 1 appears 3 times, nodes 2 and 3 appear 1 time each
         let count_1 = sequence.iter().filter(|id| *id == "1").count();
@@ -382,7 +359,7 @@ mod tests {
         let mut counts = std::collections::HashMap::new();
 
         for _ in 0..100 {
-            let selected = lb.next();
+            let selected = lb.next(false).unwrap();
             *counts.entry(selected.id.clone()).or_insert(0) += 1;
         }
 
@@ -424,7 +401,7 @@ mod tests {
         let rr = RoundRobin::new(vec![n1.clone(), n2.clone(), n3.clone()]);
         let mut rr_seen = std::collections::HashSet::new();
         for _ in 0..10 {
-            rr_seen.insert(rr.next().id.clone());
+            rr_seen.insert(rr.next(false).unwrap().id.clone());
         }
         assert!(rr_seen.contains("1"));
         assert!(!rr_seen.contains("2"));
@@ -433,7 +410,7 @@ mod tests {
         let wrr = WeightedRoundRobin::new(vec![n1.clone(), n2.clone(), n3.clone()]);
         let mut wrr_seen = std::collections::HashSet::new();
         for _ in 0..10 {
-            wrr_seen.insert(wrr.next().id.clone());
+            wrr_seen.insert(wrr.next(false).unwrap().id.clone());
         }
         assert!(wrr_seen.contains("1"));
         assert!(!wrr_seen.contains("2"));
@@ -444,11 +421,11 @@ mod tests {
         n2.metrics.active_connections.store(0, Ordering::Relaxed);
         n3.metrics.active_connections.store(2, Ordering::Relaxed);
         let lc = LeastConnections::new(vec![n1.clone(), n2.clone(), n3.clone()]);
-        assert_eq!(lc.next().id, "3");
+        assert_eq!(lc.next(false).unwrap().id, "3");
     }
 
     #[test]
-    fn test_load_balancers_fallback_when_all_unhealthy() {
+    fn test_load_balancers_fail_closed_when_all_unhealthy() {
         let n1 = test_node("1", 8081, 1);
         let n2 = test_node("2", 8082, 1);
 
@@ -456,14 +433,33 @@ mod tests {
         n2.healthy.store(false, Ordering::Relaxed);
 
         let rr = RoundRobin::new(vec![n1.clone(), n2.clone()]);
-        // When all are unhealthy, graceful degradation selects from all backends without panicking
-        let id1 = rr.next().id.clone();
-        let id2 = rr.next().id.clone();
+        assert!(rr.next(false).is_none());
+
+        // Fail-open selection is explicit and may use unhealthy backends.
+        let id1 = rr.next(true).unwrap().id.clone();
+        let id2 = rr.next(true).unwrap().id.clone();
         assert!(id1 == "1" || id1 == "2");
         assert!(id2 == "1" || id2 == "2");
 
         let wrr = WeightedRoundRobin::new(vec![n1.clone(), n2.clone()]);
-        let wid = wrr.next().id.clone();
+        assert!(wrr.next(false).is_none());
+        let wid = wrr.next(true).unwrap().id.clone();
         assert!(wid == "1" || wid == "2");
+
+        let least_connections = LeastConnections::new(vec![n1.clone(), n2.clone()]);
+        assert!(least_connections.next(false).is_none());
+        assert!(least_connections.next(true).is_some());
+
+        let least_response_time = LeastResponseTime::new(vec![n1, n2]);
+        assert!(least_response_time.next(false).is_none());
+        assert!(least_response_time.next(true).is_some());
+    }
+
+    #[test]
+    fn empty_load_balancers_return_none() {
+        assert!(RoundRobin::new(Vec::new()).next(false).is_none());
+        assert!(WeightedRoundRobin::new(Vec::new()).next(false).is_none());
+        assert!(LeastConnections::new(Vec::new()).next(false).is_none());
+        assert!(LeastResponseTime::new(Vec::new()).next(false).is_none());
     }
 }
