@@ -1,0 +1,30 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../../web"
+thread_pool_size = 16
+runtime = "thread_pool"
+default_service = "fixture"
+
+[health]
+enabled = true
+interval_ms = 1000
+timeout_ms = 250
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[observability]
+log_requests = false
+
+[[services]]
+id = "fixture"
+kind = "proxy"
+algorithm = "round_robin"
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "heterogeneous-small", address = "127.0.0.1:5201", weight = 1 },
+    { id = "heterogeneous-medium", address = "127.0.0.1:5202", weight = 4 },
+    { id = "heterogeneous-large", address = "127.0.0.1:5203", weight = 8 },
+]

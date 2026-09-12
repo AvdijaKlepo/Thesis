@@ -3,6 +3,10 @@ name = "server"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "backend-fixture"
+path = "src/bin/backend_fixture.rs"
+
 [dependencies]
 arc-swap = "1.9.2"
 tiny_http = "0.12.0"

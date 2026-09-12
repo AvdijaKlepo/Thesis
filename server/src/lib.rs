@@ -2,6 +2,7 @@ pub mod algorithms;
 pub mod backend;
 pub mod config;
 pub mod control;
+pub mod fixture;
 pub mod observability;
 pub mod proxy;
 pub mod service;

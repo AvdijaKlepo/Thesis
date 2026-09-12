@@ -1,0 +1,165 @@
+name: webserver-fixtures
+
+x-fixture: &fixture
+  build:
+    context: ./server
+    dockerfile: Dockerfile.fixture
+  image: webserver-backend-fixture:local
+  restart: "no"
+  environment: &fixture-environment
+    FIXTURE_LISTEN: "0.0.0.0:8080"
+    FIXTURE_ERROR_RATE: "0.0"
+    FIXTURE_ERROR_MODE: status
+    FIXTURE_LATENCY_JITTER_MS: "0"
+    FIXTURE_SEED: "1"
+
+services:
+  equal-1:
+    <<: *fixture
+    profiles: [equal-capacity]
+    ports: ["127.0.0.1:5101:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: equal-1
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "40"
+      FIXTURE_SEED: "101"
+
+  equal-2:
+    <<: *fixture
+    profiles: [equal-capacity]
+    ports: ["127.0.0.1:5102:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: equal-2
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "40"
+      FIXTURE_SEED: "102"
+
+  equal-3:
+    <<: *fixture
+    profiles: [equal-capacity]
+    ports: ["127.0.0.1:5103:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: equal-3
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "40"
+      FIXTURE_SEED: "103"
+
+  heterogeneous-small:
+    <<: *fixture
+    profiles: [heterogeneous]
+    ports: ["127.0.0.1:5201:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: heterogeneous-small
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "40"
+      FIXTURE_SEED: "201"
+
+  heterogeneous-medium:
+    <<: *fixture
+    profiles: [heterogeneous]
+    ports: ["127.0.0.1:5202:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: heterogeneous-medium
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "40"
+      FIXTURE_SEED: "202"
+
+  heterogeneous-large:
+    <<: *fixture
+    profiles: [heterogeneous]
+    ports: ["127.0.0.1:5203:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: heterogeneous-large
+      FIXTURE_CAPACITY: "8"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "40"
+      FIXTURE_SEED: "203"
+
+  latency-fast:
+    <<: *fixture
+    profiles: [variable-latency]
+    ports: ["127.0.0.1:5301:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: latency-fast
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "5"
+      FIXTURE_PROCESSING_MS: "20"
+      FIXTURE_SEED: "301"
+
+  latency-variable:
+    <<: *fixture
+    profiles: [variable-latency]
+    ports: ["127.0.0.1:5302:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: latency-variable
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_LATENCY_JITTER_MS: "140"
+      FIXTURE_PROCESSING_MS: "20"
+      FIXTURE_SEED: "302"
+
+  latency-slow:
+    <<: *fixture
+    profiles: [variable-latency]
+    ports: ["127.0.0.1:5303:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: latency-slow
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "120"
+      FIXTURE_PROCESSING_MS: "20"
+      FIXTURE_SEED: "303"
+
+  failure-healthy:
+    <<: *fixture
+    profiles: [failure]
+    ports: ["127.0.0.1:5401:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: failure-healthy
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "30"
+      FIXTURE_SEED: "401"
+
+  failure-flaky:
+    <<: *fixture
+    profiles: [failure]
+    ports: ["127.0.0.1:5402:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: failure-flaky
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_LATENCY_JITTER_MS: "40"
+      FIXTURE_PROCESSING_MS: "30"
+      FIXTURE_ERROR_RATE: "0.35"
+      FIXTURE_ERROR_MODE: disconnect
+      FIXTURE_SEED: "402"
+
+  failure-always:
+    <<: *fixture
+    profiles: [failure]
+    ports: ["127.0.0.1:5403:8080"]
+    environment:
+      <<: *fixture-environment
+      FIXTURE_ID: failure-always
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_LATENCY_MS: "10"
+      FIXTURE_PROCESSING_MS: "30"
+      FIXTURE_ERROR_RATE: "1.0"
+      FIXTURE_ERROR_MODE: disconnect
+      FIXTURE_SEED: "403"

@@ -586,4 +586,31 @@ root = "web"
         assert_eq!(config.server.default_service, "default");
         assert!(config.default_backend_pool(&registry).is_ok());
     }
+
+    #[test]
+    fn fixture_scenario_configurations_load() {
+        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("config")
+            .join("fixtures");
+
+        for scenario in [
+            "equal-capacity.toml",
+            "heterogeneous.toml",
+            "variable-latency.toml",
+            "failure.toml",
+        ] {
+            let config = AppConfig::load(directory.join(scenario))
+                .unwrap_or_else(|error| panic!("{scenario} should be valid: {error}"));
+            let registry = config.build_service_registry().unwrap();
+            assert_eq!(registry.all().len(), 1);
+            assert_eq!(
+                config
+                    .default_backend_pool(&registry)
+                    .unwrap()
+                    .backends()
+                    .len(),
+                3
+            );
+        }
+    }
 }
