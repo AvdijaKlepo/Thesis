@@ -1,5 +1,6 @@
 use std::{io, sync::Arc, time::Instant};
 
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream as TokioTcpStream,
@@ -16,7 +17,8 @@ use crate::{
 };
 
 /// Controls how new proxy connections are dispatched.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RuntimeMode {
     /// Dispatch each connection to a blocking thread (default).
     ThreadPool,

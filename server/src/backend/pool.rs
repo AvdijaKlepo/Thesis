@@ -251,6 +251,11 @@ fn validate_backend(backend: &Backend) -> Result<(), BackendPoolError> {
             "address must not be empty",
         ));
     }
+    if backend.weight == 0 {
+        return Err(BackendPoolError::InvalidBackend(
+            "weight must be greater than zero",
+        ));
+    }
     Ok(())
 }
 

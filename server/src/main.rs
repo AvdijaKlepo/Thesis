@@ -1,4 +1,8 @@
 use std::{
+    env,
+    error::Error,
+    io,
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -8,61 +12,32 @@ use std::{
 
 use arc_swap::ArcSwap;
 use server::{
-    Backend, RouteMatcher, RuntimeMode, Service, ServiceRegistry,
-    algorithms::{AlgorithmKind, algorithm_server::create_server},
-    backend::BackendPool,
+    algorithms::algorithm_server::create_server,
+    config::AppConfig,
     control::ControlServer,
-    proxy::{HealthCheckConfig, HealthChecker, ProxyServer},
+    proxy::{HealthChecker, ProxyServer},
 };
 
-fn main() {
-    let backend_pool = Arc::new(
-        BackendPool::new(
-            AlgorithmKind::RoundRobin,
-            vec![
-                Backend {
-                    id: "1".into(),
-                    address: "127.0.0.1:5053".into(),
-                    weight: 1,
-                },
-                Backend {
-                    id: "2".into(),
-                    address: "127.0.0.1:5054".into(),
-                    weight: 3,
-                },
-                Backend {
-                    id: "3".into(),
-                    address: "127.0.0.1:5055".into(),
-                    weight: 3,
-                },
-            ],
-        )
-        .expect("default backend pool must be valid"),
-    );
-
-    let service_registry = Arc::new(ServiceRegistry::new());
-    let default_service = Service::proxy(
-        "default",
-        vec![RouteMatcher::new(None::<String>, "/").expect("default route must be valid")],
-        Arc::clone(&backend_pool),
-    )
-    .expect("default service must be valid");
-    service_registry
-        .add(default_service)
-        .expect("default service must be unique");
+fn main() -> Result<(), Box<dyn Error>> {
+    let config_path = config_path()?;
+    let config = AppConfig::load(&config_path)?;
+    let service_registry = Arc::new(config.build_service_registry()?);
+    let backend_pool = config.default_backend_pool(&service_registry)?;
+    println!("Loaded server configuration from {}", config_path.display());
 
     let admin_pool = Arc::clone(&backend_pool);
-    let runtime_mode = Arc::new(ArcSwap::from_pointee(RuntimeMode::ThreadPool));
+    let runtime_mode = Arc::new(ArcSwap::from_pointee(config.server.runtime));
 
+    let admin_address = config.server.admin_address.clone();
     let admin_runtime_mode = Arc::clone(&runtime_mode);
-    thread::spawn(move || create_server(admin_pool, admin_runtime_mode));
+    thread::spawn(move || create_server(admin_address, admin_pool, admin_runtime_mode));
 
     let control_pool = Arc::clone(&backend_pool);
+    let control_address = config.server.control_address.clone();
+    let web_root = config.server.web_root.clone();
 
-    let control_handle = thread::spawn(|| {
-        let web_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
-
-        let server = ControlServer::new("127.0.0.1:7878", web_root, control_pool);
+    let control_handle = thread::spawn(move || {
+        let server = ControlServer::new(control_address, web_root, control_pool);
 
         if let Err(e) = server.run() {
             eprintln!("Control server stopped: {e}");
@@ -70,15 +45,20 @@ fn main() {
     });
 
     let health_shutdown = Arc::new(AtomicBool::new(false));
-    let health_checker = Arc::new(HealthChecker::new(
-        Arc::clone(&backend_pool),
-        HealthCheckConfig::default(),
-    ));
-    let health_handle = Arc::clone(&health_checker).start(Arc::clone(&health_shutdown));
+    let mut health_handles = Vec::new();
+    if config.health.enabled {
+        let health_config = config.health_check_config();
+        for service in service_registry.all() {
+            if let Some(pool) = service.proxy_pool() {
+                let checker = Arc::new(HealthChecker::new(pool, health_config.clone()));
+                health_handles.push(checker.start(Arc::clone(&health_shutdown)));
+            }
+        }
+    }
 
     let proxy_server = ProxyServer::new(
-        "127.0.0.1:7879",
-        8,
+        config.server.proxy_address.clone(),
+        config.server.thread_pool_size,
         Arc::clone(&runtime_mode),
         Arc::clone(&backend_pool),
     );
@@ -92,7 +72,43 @@ fn main() {
     control_handle.join().unwrap();
     proxy_handle.join().unwrap();
     health_shutdown.store(true, Ordering::Relaxed);
-    let _ = health_handle.join();
+    for handle in health_handles {
+        let _ = handle.join();
+    }
 
     println!("Shutting down!");
+    Ok(())
+}
+
+fn config_path() -> Result<PathBuf, io::Error> {
+    let mut arguments = env::args_os().skip(1);
+    let first = arguments.next();
+    let path = match first {
+        None => env::var_os("WEB_SERVER_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(default_config_path),
+        Some(argument) if argument == "--config" || argument == "-c" => arguments
+            .next()
+            .map(PathBuf::from)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "--config needs a path"))?,
+        Some(argument) if !argument.to_string_lossy().starts_with('-') => PathBuf::from(argument),
+        Some(argument) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unknown argument: {}", argument.to_string_lossy()),
+            ));
+        }
+    };
+
+    if let Some(extra) = arguments.next() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unexpected argument: {}", extra.to_string_lossy()),
+        ));
+    }
+    Ok(path)
+}
+
+fn default_config_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/server.toml")
 }

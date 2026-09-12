@@ -1,0 +1,27 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../web"
+thread_pool_size = 8
+runtime = "thread_pool"
+default_service = "default"
+
+[health]
+enabled = true
+interval_ms = 5000
+timeout_ms = 2000
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[[services]]
+id = "default"
+kind = "proxy"
+algorithm = "round_robin"
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "1", address = "127.0.0.1:5053", weight = 1 },
+    { id = "2", address = "127.0.0.1:5054", weight = 3 },
+    { id = "3", address = "127.0.0.1:5055", weight = 3 },
+]

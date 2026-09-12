@@ -1,4 +1,4 @@
-use std::{error::Error, sync::Arc};
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use tiny_http::Server;
@@ -10,50 +10,20 @@ use crate::{
     proxy::runtime::RuntimeMode,
 };
 
-fn start_server_with_fallback(
-    host: &str,
-    base_port: u16,
-    max_attempts: u16,
-) -> Result<Server, Box<dyn Error>> {
-    let mut current_port = base_port;
-
-    for _ in 0..max_attempts {
-        let addr = format!("{}:{}", host, current_port);
-
-        match Server::http(&addr) {
-            Ok(server) => {
-                println!("Successfully bound to {}", addr);
-                return Ok(server);
-            }
-            Err(e) => {
-                if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-                    if io_err.kind() == std::io::ErrorKind::AddrInUse {
-                        println!("Port {} is busy. Trying next port...", current_port);
-                        current_port += 1;
-                        continue;
-                    }
-                }
-
-                return Err(e);
-            }
-        }
-    }
-
-    Err(format!(
-        "Could not find an available port after {} attempts",
-        max_attempts
-    )
-    .into())
-}
-
-pub fn create_server(backend_pool: Arc<BackendPool>, runtime_mode: Arc<ArcSwap<RuntimeMode>>) {
-    let server = match start_server_with_fallback("127.0.0.1", 7880, 10) {
+pub fn create_server(
+    address: impl AsRef<str>,
+    backend_pool: Arc<BackendPool>,
+    runtime_mode: Arc<ArcSwap<RuntimeMode>>,
+) {
+    let address = address.as_ref();
+    let server = match Server::http(address) {
         Ok(server) => server,
         Err(e) => {
-            eprintln!("Initialization failed: {}", e);
-            std::process::exit(1);
+            eprintln!("Admin server failed to bind to {address}: {e}");
+            return;
         }
     };
+    println!("Admin server listening on {address}");
 
     for request in server.incoming_requests() {
         let backend_pool = Arc::clone(&backend_pool);

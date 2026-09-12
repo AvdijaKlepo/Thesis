@@ -1,5 +1,6 @@
 pub mod algorithms;
 pub mod backend;
+pub mod config;
 pub mod control;
 pub mod proxy;
 pub mod service;
