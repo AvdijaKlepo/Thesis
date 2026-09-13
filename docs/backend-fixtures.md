@@ -29,9 +29,9 @@ The binary accepts equivalent flags such as `--capacity`, `--latency-ms`, and `-
 
 Successful and HTTP-error workload responses include `X-Fixture-Backend` and `X-Fixture-Request-Id` headers and a JSON body describing the sampled delay. Health, configuration, and metrics requests are excluded from workload counters.
 
-## Scenarios
+## Server configurations for fixture profiles
 
-[compose.fixtures.yml](../compose.fixtures.yml) defines four independent Compose profiles. Matching proxy configurations live under [`server/config/fixtures`](../server/config/fixtures).
+[compose.fixtures.yml](../compose.fixtures.yml) defines four independent Compose profiles. Matching server configurations live under [`server/config/fixtures`](../server/config/fixtures). These files describe the server and its backend addresses; they do not describe experimental workloads or fault schedules.
 
 | Profile | Published ports | Controlled difference |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ Successful and HTTP-error workload responses include `X-Fixture-Backend` and `X-
 
 Seeds are fixed in the Compose file. Changing only the proxy runtime or load-balancing algorithm therefore leaves the fixture definition constant.
 
-## Running a scenario
+## Running a fixture profile manually
 
 From the repository root, start only the selected external fixture profile:
 
@@ -70,3 +70,5 @@ docker compose -f compose.fixtures.yml --profile equal-capacity down
 ```
 
 The proxy never invokes these commands, talks to the Docker daemon, or attempts to restart a fixture. To test whole-container disappearance, stop a fixture from Compose while the workload is running; that external action is intentionally outside the web server.
+
+For repeatable matrix runs, timed fault injection, and raw-result capture, use the external [scenario runner](scenario-runner.md).

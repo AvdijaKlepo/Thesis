@@ -588,19 +588,19 @@ root = "web"
     }
 
     #[test]
-    fn fixture_scenario_configurations_load() {
+    fn fixture_server_configurations_load() {
         let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("config")
             .join("fixtures");
 
-        for scenario in [
+        for file_name in [
             "equal-capacity.toml",
             "heterogeneous.toml",
             "variable-latency.toml",
             "failure.toml",
         ] {
-            let config = AppConfig::load(directory.join(scenario))
-                .unwrap_or_else(|error| panic!("{scenario} should be valid: {error}"));
+            let config = AppConfig::load(directory.join(file_name))
+                .unwrap_or_else(|error| panic!("{file_name} should be valid: {error}"));
             let registry = config.build_service_registry().unwrap();
             assert_eq!(registry.all().len(), 1);
             assert_eq!(

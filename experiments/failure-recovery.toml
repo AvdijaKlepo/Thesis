@@ -1,0 +1,129 @@
+schema_version = 1
+name = "failure-recovery"
+seed = 20260913
+repetitions = 3
+output_directory = "../results"
+algorithms = [
+    "round_robin",
+    "weighted_round_robin",
+    "least_connections",
+    "least_response_time",
+]
+runtimes = ["thread_pool", "async"]
+
+# This section only tells the external runner how to launch and reach the
+# server. The referenced TOML remains the server's operational configuration.
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 5000
+version = "0.1.0"
+
+# Everything below this point describes experimental actions and observations.
+[[scenarios]]
+id = "failure-recovery"
+description = "Stop and restore the healthy backend during a paced workload."
+server_config = "../server/config/fixtures/failure.toml"
+
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose",
+    "-f",
+    "compose.fixtures.yml",
+    "--profile",
+    "failure",
+    "up",
+    "--build",
+    "--wait",
+    "--wait-timeout",
+    "60",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose",
+    "-f",
+    "compose.fixtures.yml",
+    "--profile",
+    "failure",
+    "down",
+]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "paced-reads"
+requests = 1200
+concurrency = 32
+method = "GET"
+path = "/experiment"
+requests_per_second = 150.0
+jitter_ms = 2
+timeout_ms = 5000
+
+[[scenarios.failures]]
+id = "stop-healthy-backend"
+at_ms = 2000
+
+[scenarios.failures.action]
+command = "docker"
+args = ["compose", "-f", "compose.fixtures.yml", "stop", "failure-healthy"]
+working_directory = ".."
+
+[[scenarios.failures]]
+id = "restore-healthy-backend"
+at_ms = 4500
+
+[scenarios.failures.action]
+command = "docker"
+args = [
+    "compose",
+    "-f",
+    "compose.fixtures.yml",
+    "start",
+    "--wait",
+    "--wait-timeout",
+    "30",
+    "failure-healthy",
+]
+working_directory = ".."
+
+[[scenarios.collect]]
+id = "healthy-fixture-config"
+address = "127.0.0.1:5401"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "flaky-fixture-config"
+address = "127.0.0.1:5402"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "always-failing-fixture-config"
+address = "127.0.0.1:5403"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "healthy-fixture-metrics"
+address = "127.0.0.1:5401"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "flaky-fixture-metrics"
+address = "127.0.0.1:5402"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "always-failing-fixture-metrics"
+address = "127.0.0.1:5403"
+path = "/metrics"
+phases = ["before", "after"]

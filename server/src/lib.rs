@@ -3,8 +3,10 @@ pub mod backend;
 pub mod config;
 pub mod control;
 pub mod fixture;
+pub mod management;
 pub mod observability;
 pub mod proxy;
+pub mod scenario;
 pub mod service;
 pub mod thread_pool;
 

@@ -7,6 +7,10 @@ edition = "2024"
 name = "backend-fixture"
 path = "src/bin/backend_fixture.rs"
 
+[[bin]]
+name = "scenario-runner"
+path = "src/bin/scenario_runner.rs"
+
 [dependencies]
 arc-swap = "1.9.2"
 tiny_http = "0.12.0"
