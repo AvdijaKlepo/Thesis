@@ -53,6 +53,8 @@ The example's Compose setup and recovery commands wait for fixture health before
 
 Collection endpoints are plain HTTP address/path pairs and can run `before`, `after`, or in both phases. They are suited to fixture `/config` and `/metrics` endpoints; the checked-in example captures effective fixture configuration so its seeds and workload parameters remain attached to the result. Server-wide structured metrics are always captured before and after the workload through the management API.
 
+The runner uses the same typed `server::management::ManagementClient` as `serverctl`. Runtime and default-service algorithm changes therefore exercise the same management surface documented in [management-cli.md](management-cli.md); the runner does not depend on CLI output or spawn the CLI as a subprocess.
+
 ## Reproducibility artifacts
 
 An experiment directory contains the original manifest, a resolved JSON snapshot, the fully expanded plan, a live `runs.json` index, and the final `experiment.json` report. Every run has its own directory containing:

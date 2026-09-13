@@ -404,7 +404,7 @@ impl ScenarioRunner {
             );
 
             management
-                .set_algorithm(planned.algorithm)
+                .set_service_algorithm(&server_config.server.default_service, planned.algorithm)
                 .map_err(|error| RunnerError::new(error.to_string()))?;
             management
                 .set_runtime(planned.runtime)
@@ -424,6 +424,7 @@ impl ScenarioRunner {
                 "management",
                 Some(true),
                 json!({
+                    "service_id": server_config.server.default_service,
                     "algorithm": planned.algorithm,
                     "runtime": planned.runtime,
                 }),

@@ -11,6 +11,10 @@ path = "src/bin/backend_fixture.rs"
 name = "scenario-runner"
 path = "src/bin/scenario_runner.rs"
 
+[[bin]]
+name = "serverctl"
+path = "src/bin/serverctl.rs"
+
 [dependencies]
 arc-swap = "1.9.2"
 tiny_http = "0.12.0"

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::backend::BackendPool;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RouteMatcher {
     pub host: Option<String>,
     pub path_prefix: String,
@@ -61,7 +62,7 @@ pub struct Service {
 #[derive(Clone)]
 pub struct ServiceRouter {
     registry: Arc<ServiceRegistry>,
-    default_service: Arc<Service>,
+    default_service_id: String,
 }
 
 impl ServiceRouter {
@@ -70,20 +71,21 @@ impl ServiceRouter {
         default_service_id: impl Into<String>,
     ) -> Result<Self, ServiceRegistryError> {
         let default_service_id = default_service_id.into();
-        let default_service = registry
-            .get(&default_service_id)
-            .ok_or(ServiceRegistryError::ServiceNotFound(default_service_id))?;
+        if registry.get(&default_service_id).is_none() {
+            return Err(ServiceRegistryError::ServiceNotFound(default_service_id));
+        }
 
         Ok(Self {
             registry,
-            default_service,
+            default_service_id,
         })
     }
 
     pub fn resolve(&self, host: Option<&str>, path: &str) -> Arc<Service> {
         self.registry
             .resolve(host, path)
-            .unwrap_or_else(|| Arc::clone(&self.default_service))
+            .or_else(|| self.registry.get(&self.default_service_id))
+            .expect("the management API cannot remove the default service")
     }
 }
 
@@ -210,6 +212,26 @@ impl ServiceRegistry {
             .unwrap()
             .remove(id)
             .ok_or_else(|| ServiceRegistryError::ServiceNotFound(id.to_string()))
+    }
+
+    pub fn replace(&self, service: Service) -> Result<Arc<Service>, ServiceRegistryError> {
+        let mut services = self.services.write().unwrap();
+        if !services.contains_key(&service.id) {
+            return Err(ServiceRegistryError::ServiceNotFound(service.id));
+        }
+        for route in &service.routes {
+            if services
+                .values()
+                .any(|existing| existing.id != service.id && existing.routes.contains(route))
+            {
+                return Err(ServiceRegistryError::DuplicateRoute(route.clone()));
+            }
+        }
+
+        let id = service.id.clone();
+        let service = Arc::new(service);
+        services.insert(id, Arc::clone(&service));
+        Ok(service)
     }
 
     pub fn all(&self) -> Vec<Arc<Service>> {
@@ -454,6 +476,27 @@ mod tests {
         assert_eq!(
             router.resolve(Some("other.example"), "/unknown").id,
             "default"
+        );
+    }
+
+    #[test]
+    fn router_observes_service_replacements() {
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(Service::proxy("default", vec![route(None, "/old")], pool("one", 8081)).unwrap())
+            .unwrap();
+        let router = ServiceRouter::new(Arc::clone(&registry), "default").unwrap();
+
+        registry
+            .replace(
+                Service::proxy("default", vec![route(None, "/new")], pool("two", 8082)).unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(router.resolve(None, "/new").routes[0].path_prefix, "/new");
+        assert_eq!(
+            router.resolve(None, "/unknown").routes[0].path_prefix,
+            "/new"
         );
     }
 }

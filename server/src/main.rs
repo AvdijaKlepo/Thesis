@@ -37,17 +37,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     ));
     eprintln!("Loaded server configuration from {}", config_path.display());
 
-    let admin_pool = Arc::clone(&backend_pool);
     let runtime_mode = Arc::new(ArcSwap::from_pointee(config.server.runtime));
 
     let admin_address = config.server.admin_address.clone();
+    let admin_default_service = config.server.default_service.clone();
     let admin_runtime_mode = Arc::clone(&runtime_mode);
     let admin_registry = Arc::clone(&service_registry);
     let admin_observability = Arc::clone(&observability);
     thread::spawn(move || {
         create_server(
             admin_address,
-            admin_pool,
+            admin_default_service,
             admin_runtime_mode,
             admin_registry,
             admin_observability,
@@ -75,15 +75,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let health_shutdown = Arc::new(AtomicBool::new(false));
-    let mut health_handles = Vec::new();
+    let mut health_handle = None;
     if config.health.enabled {
         let health_config = config.health_check_config();
-        for service in service_registry.all() {
-            if let Some(pool) = service.proxy_pool() {
-                let checker = Arc::new(HealthChecker::new(pool, health_config.clone()));
-                health_handles.push(checker.start(Arc::clone(&health_shutdown)));
-            }
-        }
+        let checker = Arc::new(HealthChecker::new(
+            Arc::clone(&service_registry),
+            health_config,
+        ));
+        health_handle = Some(checker.start(Arc::clone(&health_shutdown)));
     }
 
     let proxy_server = ProxyServer::new(
@@ -103,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     control_handle.join().unwrap();
     proxy_handle.join().unwrap();
     health_shutdown.store(true, Ordering::Relaxed);
-    for handle in health_handles {
+    if let Some(handle) = health_handle {
         let _ = handle.join();
     }
 

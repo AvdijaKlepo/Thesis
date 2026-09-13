@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    net::{SocketAddr, TcpStream},
+    net::{TcpStream, ToSocketAddrs},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use crate::backend::BackendPool;
+use crate::service::ServiceRegistry;
 
 #[derive(Clone, Debug)]
 pub struct HealthCheckConfig {
@@ -37,15 +37,15 @@ struct BackendHealthTracker {
 }
 
 pub struct HealthChecker {
-    backend_pool: Arc<BackendPool>,
+    service_registry: Arc<ServiceRegistry>,
     config: HealthCheckConfig,
-    trackers: Mutex<HashMap<String, BackendHealthTracker>>,
+    trackers: Mutex<HashMap<(String, String), BackendHealthTracker>>,
 }
 
 impl HealthChecker {
-    pub fn new(backend_pool: Arc<BackendPool>, config: HealthCheckConfig) -> Self {
+    pub fn new(service_registry: Arc<ServiceRegistry>, config: HealthCheckConfig) -> Self {
         Self {
-            backend_pool,
+            service_registry,
             config,
             trackers: Mutex::new(HashMap::new()),
         }
@@ -53,45 +53,52 @@ impl HealthChecker {
 
     /// Performs one round of TCP connect health checks against all backends currently in the registry.
     pub fn check_all(&self) {
-        let nodes = self.backend_pool.backends();
         let mut trackers = self.trackers.lock().unwrap();
-
-        for node in nodes {
-            let id = &node.backend.id;
-            let tracker = trackers.entry(id.clone()).or_default();
-            let is_currently_healthy = node.healthy.load(Ordering::Relaxed);
-
-            // Attempt TCP connect with timeout
-            let is_up = match node.backend.address.parse::<SocketAddr>() {
-                Ok(addr) => TcpStream::connect_timeout(&addr, self.config.timeout).is_ok(),
-                Err(_) => false,
+        for service in self.service_registry.all() {
+            let Some(pool) = service.proxy_pool() else {
+                continue;
             };
+            for node in pool.backends() {
+                let tracker = trackers
+                    .entry((service.id.clone(), node.backend.id.clone()))
+                    .or_default();
+                let is_currently_healthy = node.healthy.load(Ordering::Relaxed);
+                let is_up = node
+                    .backend
+                    .address
+                    .to_socket_addrs()
+                    .is_ok_and(|addresses| {
+                        addresses.into_iter().any(|address| {
+                            TcpStream::connect_timeout(&address, self.config.timeout).is_ok()
+                        })
+                    });
 
-            if is_up {
-                tracker.consecutive_successes += 1;
-                tracker.consecutive_failures = 0;
+                if is_up {
+                    tracker.consecutive_successes += 1;
+                    tracker.consecutive_failures = 0;
 
-                if tracker.consecutive_successes >= self.config.healthy_threshold
-                    && !is_currently_healthy
-                {
-                    node.healthy.store(true, Ordering::Relaxed);
-                    eprintln!(
-                        "Health check: backend {} at {} is now HEALTHY",
-                        node.backend.id, node.backend.address
-                    );
-                }
-            } else {
-                tracker.consecutive_failures += 1;
-                tracker.consecutive_successes = 0;
+                    if tracker.consecutive_successes >= self.config.healthy_threshold
+                        && !is_currently_healthy
+                    {
+                        node.healthy.store(true, Ordering::Relaxed);
+                        eprintln!(
+                            "Health check: backend {}/{} at {} is now HEALTHY",
+                            service.id, node.backend.id, node.backend.address
+                        );
+                    }
+                } else {
+                    tracker.consecutive_failures += 1;
+                    tracker.consecutive_successes = 0;
 
-                if tracker.consecutive_failures >= self.config.unhealthy_threshold
-                    && is_currently_healthy
-                {
-                    node.healthy.store(false, Ordering::Relaxed);
-                    eprintln!(
-                        "Health check: backend {} at {} is now UNHEALTHY",
-                        node.backend.id, node.backend.address
-                    );
+                    if tracker.consecutive_failures >= self.config.unhealthy_threshold
+                        && is_currently_healthy
+                    {
+                        node.healthy.store(false, Ordering::Relaxed);
+                        eprintln!(
+                            "Health check: backend {}/{} at {} is now UNHEALTHY",
+                            service.id, node.backend.id, node.backend.address
+                        );
+                    }
                 }
             }
         }
@@ -120,7 +127,7 @@ impl HealthChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Backend, algorithms::AlgorithmKind};
+    use crate::{Backend, algorithms::AlgorithmKind, backend::BackendPool};
     use std::net::TcpListener;
 
     #[test]
@@ -149,7 +156,18 @@ mod tests {
             healthy_threshold: 2,
         };
 
-        let checker = HealthChecker::new(Arc::clone(&backend_pool), config);
+        let registry = Arc::new(ServiceRegistry::new());
+        registry
+            .add(
+                crate::service::Service::proxy(
+                    "test",
+                    vec![crate::service::RouteMatcher::new(None::<String>, "/").unwrap()],
+                    Arc::clone(&backend_pool),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let checker = HealthChecker::new(registry, config);
 
         // Initially healthy
         assert!(node.healthy.load(Ordering::Relaxed));
@@ -179,5 +197,37 @@ mod tests {
         // 2nd recovery check -> threshold 2 reached, marked healthy again!
         checker.check_all();
         assert!(node.healthy.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn discovers_backends_added_after_startup() {
+        let registry = Arc::new(ServiceRegistry::new());
+        let checker = HealthChecker::new(
+            Arc::clone(&registry),
+            HealthCheckConfig {
+                unhealthy_threshold: 1,
+                ..HealthCheckConfig::default()
+            },
+        );
+        let pool = Arc::new(BackendPool::new(AlgorithmKind::RoundRobin, Vec::new()).unwrap());
+        registry
+            .add(
+                crate::service::Service::proxy(
+                    "dynamic",
+                    vec![crate::service::RouteMatcher::new(None::<String>, "/dynamic").unwrap()],
+                    Arc::clone(&pool),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        pool.add_backend(Backend {
+            id: "late".into(),
+            address: "127.0.0.1:9".into(),
+            weight: 1,
+        })
+        .unwrap();
+
+        checker.check_all();
+        assert!(!pool.backends()[0].healthy.load(Ordering::Relaxed));
     }
 }

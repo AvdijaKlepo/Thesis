@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -53,7 +56,7 @@ pub struct Observability {
     started: Instant,
     next_request_id: AtomicU64,
     log_requests: bool,
-    request_metrics: HashMap<String, ServiceRequestMetrics>,
+    request_metrics: RwLock<HashMap<String, Arc<ServiceRequestMetrics>>>,
 }
 
 impl Observability {
@@ -64,7 +67,10 @@ impl Observability {
     {
         let mut request_metrics = HashMap::new();
         for service_id in service_ids {
-            request_metrics.insert(service_id.into(), ServiceRequestMetrics::default());
+            request_metrics.insert(
+                service_id.into(),
+                Arc::new(ServiceRequestMetrics::default()),
+            );
         }
 
         let timestamp_ms = unix_timestamp_ms();
@@ -73,7 +79,7 @@ impl Observability {
             started: Instant::now(),
             next_request_id: AtomicU64::new(1),
             log_requests,
-            request_metrics,
+            request_metrics: RwLock::new(request_metrics),
         }
     }
 
@@ -82,13 +88,9 @@ impl Observability {
     }
 
     pub fn record(&self, observation: RequestObservation<'_>) {
-        if let Some(metrics) = self
-            .request_metrics
-            .get(observation.service_id)
-            .map(|metrics| metrics.for_runtime(observation.runtime))
-        {
-            metrics.record(&observation);
-        }
+        self.metrics_for(observation.service_id)
+            .for_runtime(observation.runtime)
+            .record(&observation);
 
         if self.log_requests {
             let event = RequestLogEvent {
@@ -119,8 +121,17 @@ impl Observability {
     }
 
     pub fn snapshot(&self, services: &ServiceRegistry) -> ObservabilitySnapshot {
-        let mut requests = self
+        for service in services.all() {
+            self.metrics_for(&service.id);
+        }
+        let request_metrics = self
             .request_metrics
+            .read()
+            .unwrap()
+            .iter()
+            .map(|(id, metrics)| (id.clone(), Arc::clone(metrics)))
+            .collect::<Vec<_>>();
+        let mut requests = request_metrics
             .iter()
             .flat_map(|(service_id, metrics)| {
                 [
@@ -169,6 +180,24 @@ impl Observability {
             requests,
             services,
         }
+    }
+
+    fn metrics_for(&self, service_id: &str) -> Arc<ServiceRequestMetrics> {
+        if let Some(metrics) = self
+            .request_metrics
+            .read()
+            .unwrap()
+            .get(service_id)
+            .cloned()
+        {
+            return metrics;
+        }
+        let mut request_metrics = self.request_metrics.write().unwrap();
+        Arc::clone(
+            request_metrics
+                .entry(service_id.to_string())
+                .or_insert_with(|| Arc::new(ServiceRequestMetrics::default())),
+        )
     }
 }
 
@@ -516,5 +545,58 @@ mod tests {
         assert_eq!(value["outcome"], "completed");
         assert_eq!(value["success"], true);
         assert_eq!(value["algorithm"], "round_robin");
+    }
+
+    #[test]
+    fn records_services_added_after_observability_startup() {
+        let observability = Observability::new(std::iter::empty::<String>(), false);
+        observability.record(RequestObservation {
+            request_id: observability.next_request_id(),
+            runtime: RuntimeMode::ThreadPool,
+            service_id: "dynamic",
+            algorithm: Some(AlgorithmKind::RoundRobin),
+            backend_id: "late",
+            method: "GET",
+            host: None,
+            path: "/dynamic",
+            outcome: RequestOutcome::Completed,
+            status_code: 200,
+            attempts: 1,
+            latency: Duration::from_micros(75),
+            upstream_bytes_sent: 10,
+            downstream_bytes_sent: 20,
+        });
+
+        let registry = ServiceRegistry::new();
+        registry
+            .add(
+                Service::proxy(
+                    "dynamic",
+                    vec![RouteMatcher::new(None::<String>, "/dynamic").unwrap()],
+                    Arc::new(
+                        BackendPool::new(
+                            AlgorithmKind::RoundRobin,
+                            vec![Backend {
+                                id: "late".into(),
+                                address: "127.0.0.1:8080".into(),
+                                weight: 1,
+                            }],
+                        )
+                        .unwrap(),
+                    ),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let snapshot = observability.snapshot(&registry);
+        let metrics = snapshot
+            .requests
+            .iter()
+            .find(|entry| entry.service_id == "dynamic" && entry.runtime == RuntimeMode::ThreadPool)
+            .unwrap();
+        assert_eq!(metrics.total_requests, 1);
+        assert_eq!(metrics.successful_requests, 1);
+        assert_eq!(snapshot.services[0].service_id, "dynamic");
     }
 }
