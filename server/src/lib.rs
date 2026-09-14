@@ -1,4 +1,5 @@
 pub mod algorithms;
+pub mod analysis;
 pub mod backend;
 pub mod config;
 pub mod control;

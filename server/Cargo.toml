@@ -12,6 +12,10 @@ name = "scenario-runner"
 path = "src/bin/scenario_runner.rs"
 
 [[bin]]
+name = "analyze-results"
+path = "src/bin/analyze_results.rs"
+
+[[bin]]
 name = "serverctl"
 path = "src/bin/serverctl.rs"
 

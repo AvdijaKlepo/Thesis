@@ -62,9 +62,48 @@ An experiment directory contains the original manifest, a resolved JSON snapshot
 - `metadata.json`: status, experiment and derived run seeds, runner/server versions, source revision and dirty flag, platform, selected parameters, and the complete scenario definition.
 - `server-config.toml`: the exact operational configuration used for that run.
 - `requests.jsonl`: one raw end-to-end measurement per generated request, including planned and actual start offsets, timestamps, latency, status, transport errors, byte count, and fixture/backend identifiers.
+- `resource-samples.jsonl`: raw 100 ms server-process CPU-time and memory samples during the measured workload.
 - `events.jsonl`: ordered server, workload, setup, teardown, failure, recovery, and collection events, including command output and exit status.
 - `metrics-before.json` and `metrics-after.json`: untouched structured server snapshots.
 - `collection-*.body` and `collection-*.json`: untouched endpoint bodies plus response metadata.
 - `server.stdout.log` and `server.stderr.log`: exact process output, including per-request JSON events when server request logging is enabled.
 
 `summary.json` is only a convenience count. Scientific analysis should remain derivable from the raw artifacts rather than treating the convenience summary as source data.
+
+## Analyze an experiment
+
+Build and run the analyzer against a completed experiment directory:
+
+```text
+cd server
+cargo run --release --bin analyze-results -- ../results/failure-recovery-EXPERIMENT_ID
+```
+
+By default, failed and partial runs remain visible in `run-summary.csv` and
+`analysis.json` but are excluded from cross-repetition aggregates. Use
+`--include-failed` only when the experimental protocol permits partial data.
+`--output DIRECTORY` selects a different derived-output directory.
+
+The analyzer leaves the experiment and every run directory untouched. Its
+`analysis/` directory contains:
+
+- `analysis.json`: run-level results, grouped statistics, calculation definitions,
+  and a SHA-256 inventory of every raw input.
+- `run-summary.csv`, `group-summary.csv`, and long-form `group-statistics.csv`:
+  end-to-end throughput, transport and
+  HTTP errors, interpolated p50/p90/p95/p99/p99.9 latency, and 95% confidence
+  intervals across repetitions.
+- `backend-fairness.csv` and `backend-fairness.json`: request-attempt deltas per
+  backend, configured weights, normalized load, and Jain fairness indices.
+- `resource-usage.csv`: server-process CPU time/utilization and resident/virtual
+  memory summaries from `resource-samples.jsonl`.
+- `recovery.csv`: time from a successful restore/recover/restart/resume/enable/heal/up
+  action to the first successful response and to five consecutive successes.
+- `raw-inputs.csv`: relative path, byte count, and SHA-256 digest for each source
+  artifact used by the analysis.
+- `plots/*.svg`: editable, vector, color-blind-safe plots suitable for print or
+  direct thesis inclusion.
+
+New experiment runs sample the server process every 100 ms during the workload
+and preserve those observations as `resource-samples.jsonl`. Older runs remain
+analyzable; their CPU and memory fields are explicitly null rather than inferred.

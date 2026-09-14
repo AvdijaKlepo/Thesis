@@ -28,6 +28,7 @@ use super::{
     manifest::{
         CollectionEndpoint, CollectionPhase, ExperimentManifest, ExternalCommand, ScenarioManifest,
     },
+    resources::start_resource_monitor,
     workload::{RequestMeasurement, stable_hash, unix_timestamp_ms},
 };
 
@@ -35,7 +36,7 @@ use super::{
 pub struct RunnerError(String);
 
 impl RunnerError {
-    fn new(message: impl Into<String>) -> Self {
+    pub(super) fn new(message: impl Into<String>) -> Self {
         Self(message.into())
     }
 }
@@ -456,6 +457,14 @@ impl ScenarioRunner {
                 json!({"count": scenario.workloads.len(), "seed": planned.seed}),
                 Some(workload_origin),
             );
+            let resource_monitor = start_resource_monitor(
+                server_process
+                    .as_ref()
+                    .expect("server process was assigned")
+                    .id(),
+                &run_directory,
+                workload_origin,
+            )?;
             let failure_handles = start_failures(
                 scenario,
                 context.clone(),
@@ -513,6 +522,7 @@ impl ScenarioRunner {
                     Err(_) => failure_errors.push("failure scheduler panicked".into()),
                 }
             }
+            let resource_error = resource_monitor.stop().err();
             events.record(
                 "workloads_completed",
                 "all",
@@ -523,6 +533,9 @@ impl ScenarioRunner {
             write_json_lines(run_directory.join("requests.jsonl"), &measurements)?;
             if !workload_errors.is_empty() {
                 return Err(RunnerError::new(workload_errors.join("; ")));
+            }
+            if let Some(error) = resource_error {
+                return Err(error);
             }
 
             let metrics_after = management
@@ -1219,6 +1232,7 @@ fn raw_artifacts() -> Vec<&'static str> {
         "server.stderr.log",
         "events.jsonl",
         "requests.jsonl",
+        "resource-samples.jsonl",
         "metrics-before.json",
         "metrics-after.json",
         "collection-*.body",

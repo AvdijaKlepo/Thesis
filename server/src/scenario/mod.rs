@@ -1,6 +1,7 @@
 //! External, manifest-driven experiment orchestration.
 
 mod manifest;
+mod resources;
 mod runner;
 mod workload;
 
