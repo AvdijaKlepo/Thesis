@@ -1,0 +1,88 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/heterogeneous-capacity.toml
+schema_version = 1
+name = "heterogeneous-capacity"
+seed = 20260915
+repetitions = 3
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time"]
+runtimes = ["thread_pool", "async"]
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "heterogeneous-capacity"
+description = "Offer 160 requests/s to capacities 1:4:8 with matching weights; observe small-backend queueing and capacity-adjusted fairness."
+server_config = "../server/config/fixtures/heterogeneous.toml"
+
+# A dedicated Compose project and recreated containers reset fixture state per run.
+# Published ports are shared with the manual profiles: run only one experiment at a time.
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "heterogeneous", "up", "--build", "--force-recreate",
+    "--wait", "--wait-timeout", "60",
+    "heterogeneous-small", "heterogeneous-medium", "heterogeneous-large",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "heterogeneous", "down", "--timeout", "0",
+]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 1600
+concurrency = 64
+method = "GET"
+path = "/experiment"
+requests_per_second = 160.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.collect]]
+id = "heterogeneous-small-config"
+address = "127.0.0.1:5201"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "heterogeneous-small-metrics"
+address = "127.0.0.1:5201"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous-medium-config"
+address = "127.0.0.1:5202"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "heterogeneous-medium-metrics"
+address = "127.0.0.1:5202"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous-large-config"
+address = "127.0.0.1:5203"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "heterogeneous-large-metrics"
+address = "127.0.0.1:5203"
+path = "/metrics"
+phases = ["before", "after"]
+

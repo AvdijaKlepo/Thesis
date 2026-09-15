@@ -1,0 +1,88 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/equal-capacity.toml
+schema_version = 1
+name = "equal-capacity"
+seed = 20260915
+repetitions = 3
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time"]
+runtimes = ["thread_pool", "async"]
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "equal-capacity"
+description = "Steady 60 requests/s baseline on three identical backends; compare allocation fairness and latency without deliberate saturation."
+server_config = "../server/config/fixtures/equal-capacity.toml"
+
+# A dedicated Compose project and recreated containers reset fixture state per run.
+# Published ports are shared with the manual profiles: run only one experiment at a time.
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "equal-capacity", "up", "--build", "--force-recreate",
+    "--wait", "--wait-timeout", "60",
+    "equal-1", "equal-2", "equal-3",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "equal-capacity", "down", "--timeout", "0",
+]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 600
+concurrency = 16
+method = "GET"
+path = "/experiment"
+requests_per_second = 60.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.collect]]
+id = "equal-1-config"
+address = "127.0.0.1:5101"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "equal-1-metrics"
+address = "127.0.0.1:5101"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal-2-config"
+address = "127.0.0.1:5102"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "equal-2-metrics"
+address = "127.0.0.1:5102"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal-3-config"
+address = "127.0.0.1:5103"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "equal-3-metrics"
+address = "127.0.0.1:5103"
+path = "/metrics"
+phases = ["before", "after"]
+

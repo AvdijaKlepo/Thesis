@@ -4,6 +4,9 @@ The scenario runner is the experiment boundary. Server TOML files describe liste
 
 The web server does not invoke Docker or interpret an experiment manifest. The runner starts a new server process for each matrix cell so counters and adaptive algorithm state cannot leak between repetitions.
 
+For ready-to-run fairness, heterogeneous-capacity, variable-latency, saturation,
+burst, retry, and recovery studies, see the [fixture experiment suite](experiment-scenarios.md).
+
 ## Build and validate
 
 Build the server and runner before an experiment. Launching the built server directly also lets the runner terminate the exact process it started.
@@ -102,12 +105,17 @@ The analyzer leaves the experiment and every run directory untouched. Its
   backend, configured weights, normalized load, and Jain fairness indices.
 - `resource-usage.csv`: server-process CPU time/utilization and resident/virtual
   memory summaries from `resource-samples.jsonl`.
-- `recovery.csv`: time from a successful restore/recover/restart/resume/enable/heal/up
+- `recovery.csv`: time from a successful restore/recover/restart/resume/enable/start/heal/up
   action to the first successful response and to five consecutive successes.
 - `raw-inputs.csv`: relative path, byte count, and SHA-256 digest for each source
   artifact used by the analysis.
 - `plots/*.svg`: editable, vector, color-blind-safe plots suitable for print or
   direct thesis inclusion.
+
+Recovery actions are identified by keywords in their event labels or standalone
+command words. A command argument containing a compound project/file name such
+as `failure-recovery` is not itself a recovery action. Studies without restoration
+events still produce the other analyses; their recovery output is empty.
 
 New experiment runs sample the server process every 100 ms during the workload
 and preserve those observations as `resource-samples.jsonl`. Older runs remain

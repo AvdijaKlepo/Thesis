@@ -1,0 +1,161 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/retry-behavior.toml
+schema_version = 1
+name = "retry-behavior"
+seed = 20260915
+repetitions = 3
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time"]
+runtimes = ["thread_pool", "async"]
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "retry-get"
+description = "GET workload against healthy, 35%-disconnecting, and always-disconnecting backends; compare permitted retry attempts and end-to-end success. No containers are stopped."
+server_config = "../server/config/fixtures/failure.toml"
+
+# A dedicated Compose project and recreated containers reset fixture state per run.
+# Published ports are shared with the manual profiles: run only one experiment at a time.
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "failure", "up", "--build", "--force-recreate",
+    "--wait", "--wait-timeout", "60",
+    "failure-healthy", "failure-flaky", "failure-always",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "failure", "down", "--timeout", "0",
+]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "idempotent-reads"
+requests = 400
+concurrency = 16
+method = "GET"
+path = "/experiment"
+requests_per_second = 40.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.collect]]
+id = "failure-healthy-config"
+address = "127.0.0.1:5401"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "failure-healthy-metrics"
+address = "127.0.0.1:5401"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-config"
+address = "127.0.0.1:5402"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "failure-flaky-metrics"
+address = "127.0.0.1:5402"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-config"
+address = "127.0.0.1:5403"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "failure-always-metrics"
+address = "127.0.0.1:5403"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios]]
+id = "retry-post"
+description = "POST workload against healthy, 35%-disconnecting, and always-disconnecting backends; compare permitted retry attempts and end-to-end success. No containers are stopped."
+server_config = "../server/config/fixtures/failure.toml"
+
+# A dedicated Compose project and recreated containers reset fixture state per run.
+# Published ports are shared with the manual profiles: run only one experiment at a time.
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "failure", "up", "--build", "--force-recreate",
+    "--wait", "--wait-timeout", "60",
+    "failure-healthy", "failure-flaky", "failure-always",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "failure", "down", "--timeout", "0",
+]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "non-idempotent-writes"
+requests = 400
+concurrency = 16
+method = "POST"
+path = "/experiment"
+requests_per_second = 40.0
+jitter_ms = 2
+timeout_ms = 10000
+headers = { "Content-Type" = "application/json" }
+body = '{"operation":"fixture-test"}'
+
+[[scenarios.collect]]
+id = "failure-healthy-config"
+address = "127.0.0.1:5401"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "failure-healthy-metrics"
+address = "127.0.0.1:5401"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-config"
+address = "127.0.0.1:5402"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "failure-flaky-metrics"
+address = "127.0.0.1:5402"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-config"
+address = "127.0.0.1:5403"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "failure-always-metrics"
+address = "127.0.0.1:5403"
+path = "/metrics"
+phases = ["before", "after"]
+

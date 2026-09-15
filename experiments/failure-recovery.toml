@@ -31,15 +31,21 @@ server_config = "../server/config/fixtures/failure.toml"
 command = "docker"
 args = [
     "compose",
+    "-p",
+    "webserver-benchmark-{scenario}",
     "-f",
     "compose.fixtures.yml",
     "--profile",
     "failure",
     "up",
     "--build",
+    "--force-recreate",
     "--wait",
     "--wait-timeout",
     "60",
+    "failure-healthy",
+    "failure-flaky",
+    "failure-always",
 ]
 working_directory = ".."
 
@@ -47,11 +53,15 @@ working_directory = ".."
 command = "docker"
 args = [
     "compose",
+    "-p",
+    "webserver-benchmark-{scenario}",
     "-f",
     "compose.fixtures.yml",
     "--profile",
     "failure",
     "down",
+    "--timeout",
+    "0",
 ]
 working_directory = ".."
 
@@ -71,7 +81,9 @@ at_ms = 2000
 
 [scenarios.failures.action]
 command = "docker"
-args = ["compose", "-f", "compose.fixtures.yml", "stop", "failure-healthy"]
+# An abrupt outage must finish before the independent restore action at 4.5 s.
+# Docker's default graceful-stop timeout can otherwise overlap that action.
+args = ["compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml", "stop", "--timeout", "0", "failure-healthy"]
 working_directory = ".."
 
 [[scenarios.failures]]
@@ -82,6 +94,8 @@ at_ms = 4500
 command = "docker"
 args = [
     "compose",
+    "-p",
+    "webserver-benchmark-{scenario}",
     "-f",
     "compose.fixtures.yml",
     "start",

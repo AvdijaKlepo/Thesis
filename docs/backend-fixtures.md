@@ -72,3 +72,7 @@ docker compose -f compose.fixtures.yml --profile equal-capacity down
 The proxy never invokes these commands, talks to the Docker daemon, or attempts to restart a fixture. To test whole-container disappearance, stop a fixture from Compose while the workload is running; that external action is intentionally outside the web server.
 
 For repeatable matrix runs, timed fault injection, and raw-result capture, use the external [scenario runner](scenario-runner.md).
+
+The [fixture experiment suite](experiment-scenarios.md) supplies runnable manifests
+for all four profiles, including fairness, capacity and latency differences,
+saturation, bursts, method-dependent retries, and failure recovery.

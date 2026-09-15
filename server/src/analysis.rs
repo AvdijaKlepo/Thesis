@@ -775,25 +775,41 @@ fn recovery_analysis(
 }
 
 fn is_recovery_action(event: &EventInput) -> bool {
-    let mut text = event.label.to_ascii_lowercase();
-    if let Some(command) = event.details.get("command").and_then(Value::as_str) {
-        text.push(' ');
-        text.push_str(&command.to_ascii_lowercase());
+    fn is_recovery_word(word: &str) -> bool {
+        matches!(
+            word,
+            "recover"
+                | "recovery"
+                | "restore"
+                | "restart"
+                | "resume"
+                | "enable"
+                | "start"
+                | "heal"
+                | "up"
+        )
     }
-    text.split(|character: char| !character.is_ascii_alphanumeric())
-        .any(|word| {
-            matches!(
-                word,
-                "recover"
-                    | "recovery"
-                    | "restore"
-                    | "restart"
-                    | "resume"
-                    | "enable"
-                    | "start"
-                    | "heal"
-                    | "up"
-            )
+
+    let label = event.label.to_ascii_lowercase();
+    if label
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(is_recovery_word)
+    {
+        return true;
+    }
+
+    // Labels intentionally use compound names such as "restore-one". Command
+    // arguments must instead match whole words: a project or file containing
+    // "failure-recovery" does not turn `docker ... stop` into a recovery action.
+    event
+        .details
+        .get("command")
+        .and_then(Value::as_str)
+        .is_some_and(|command| {
+            command
+                .to_ascii_lowercase()
+                .split_ascii_whitespace()
+                .any(is_recovery_word)
         })
 }
 
@@ -1920,6 +1936,37 @@ mod tests {
         ];
         assert_eq!(first_stable_success(&completions, 3), Some(130));
         assert_eq!(first_stable_success(&completions, 4), None);
+    }
+
+    #[test]
+    fn recovery_detection_ignores_project_and_file_name_fragments() {
+        let event = |label: &str, command: &str| {
+            serde_json::from_value::<EventInput>(serde_json::json!({
+                "event": "failure_completed",
+                "label": label,
+                "success": true,
+                "elapsed_us": 2_500_000,
+                "details": { "command": command }
+            }))
+            .unwrap()
+        };
+
+        assert!(!is_recovery_action(&event(
+            "stop-healthy-backend",
+            "docker compose -p webserver-benchmark-failure-recovery -f compose.fixtures.yml stop --timeout 0 failure-healthy"
+        )));
+        assert!(!is_recovery_action(&event(
+            "pause-backend",
+            "docker compose -f C:/experiments/failure-recovery.yml pause backend"
+        )));
+        assert!(is_recovery_action(&event(
+            "restore-healthy-backend",
+            "custom-fixture-controller --ready"
+        )));
+        assert!(is_recovery_action(&event(
+            "backend-action",
+            "docker compose -p webserver-benchmark-failure-recovery start --wait failure-healthy"
+        )));
     }
 
     #[test]
