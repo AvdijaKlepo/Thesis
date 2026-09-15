@@ -70,6 +70,11 @@ An experiment directory contains the original manifest, a resolved JSON snapshot
 
 `summary.json` is only a convenience count. Scientific analysis should remain derivable from the raw artifacts rather than treating the convenience summary as source data.
 
+`events.jsonl`, `requests.jsonl`, and `resource-samples.jsonl` are flushed as
+observations happen. The [live dashboard](live-dashboard.md) follows those same
+files while a run is active; no separate telemetry collector or metric schema is
+introduced for the UI.
+
 ## Analyze an experiment
 
 Build and run the analyzer against a completed experiment directory:

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Balancer Lab · Experiment telemetry</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Balancer Lab dashboard">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><b>Balancer</b> Lab</span>
+      </a>
+      <div class="topbar-meta">
+        <span class="source-badge"><span></span> Raw artifact feed</span>
+        <span id="clock" class="clock">--:--:--</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="context-bar" aria-label="Experiment selection">
+        <div class="select-field wide">
+          <label for="experiment-select">Experiment</label>
+          <select id="experiment-select" aria-label="Experiment"></select>
+        </div>
+        <span class="context-divider" aria-hidden="true"></span>
+        <div class="select-field wide">
+          <label for="run-select">Run</label>
+          <select id="run-select" aria-label="Run"></select>
+        </div>
+        <div class="run-facts" id="run-facts">
+          <span><small>Algorithm</small><b>—</b></span>
+          <span><small>Runtime</small><b>—</b></span>
+          <span><small>Repetition</small><b>—</b></span>
+        </div>
+        <button id="refresh-button" class="icon-button" title="Refresh data" aria-label="Refresh data">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+        </button>
+      </section>
+
+      <section class="hero">
+        <div>
+          <div class="eyebrow"><span id="mode-dot" class="pulse-dot"></span><span id="mode-label">CONNECTING</span></div>
+          <h1 id="experiment-title">Experiment telemetry</h1>
+          <p id="experiment-subtitle">Reading scenario-runner artifacts…</p>
+        </div>
+        <div class="hero-progress">
+          <div class="progress-copy"><span>Matrix progress</span><b id="matrix-progress-label">—</b></div>
+          <div class="progress-track"><i id="matrix-progress-bar"></i></div>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="Primary metrics">
+        <article class="metric-card accent-lime">
+          <div class="metric-heading"><span>Throughput</span><span class="method-tag">COMPLETIONS / WINDOW</span></div>
+          <strong id="metric-throughput">—</strong><small>requests / second</small>
+          <div class="metric-foot"><span id="metric-throughput-delta">0 measured requests</span><span class="spark" id="spark-throughput"></span></div>
+        </article>
+        <article class="metric-card accent-violet">
+          <div class="metric-heading"><span>p95 latency</span><span class="method-tag">R-7</span></div>
+          <strong id="metric-latency">—</strong><small>milliseconds</small>
+          <div class="metric-foot"><span id="metric-latency-range">min — · max —</span><span class="spark" id="spark-latency"></span></div>
+        </article>
+        <article class="metric-card accent-coral">
+          <div class="metric-heading"><span>Error rate</span><span class="method-tag">HTTP + TRANSPORT</span></div>
+          <strong id="metric-errors">—</strong><small>of all requests</small>
+          <div class="metric-foot"><span id="metric-errors-count">0 errors</span><span class="spark" id="spark-errors"></span></div>
+        </article>
+        <article class="metric-card accent-blue">
+          <div class="metric-heading"><span>Fairness</span><span class="method-tag">JAIN INDEX</span></div>
+          <strong id="metric-fairness">—</strong><small>backend request distribution</small>
+          <div class="metric-foot"><span id="metric-backends-count">0 observed backends</span><span class="spark" id="spark-fairness"></span></div>
+        </article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel chart-panel span-2">
+          <div class="panel-head">
+            <div><span class="panel-kicker">Request telemetry</span><h2>Latency trace</h2></div>
+            <div class="legend"><span><i class="legend-success"></i>Success</span><span><i class="legend-error"></i>Error</span></div>
+          </div>
+          <div id="latency-chart" class="chart large-chart" role="img" aria-label="Request latency over time"></div>
+        </article>
+
+        <article class="panel resource-panel">
+          <div class="panel-head">
+            <div><span class="panel-kicker">Process sampler · 100 ms</span><h2>Resource envelope</h2></div>
+          </div>
+          <div class="resource-readings">
+            <span><small>Avg CPU</small><b id="resource-cpu">—</b></span>
+            <span><small>Peak RSS</small><b id="resource-memory">—</b></span>
+            <span><small>Samples</small><b id="resource-samples">—</b></span>
+          </div>
+          <div id="resource-chart" class="chart resource-chart" role="img" aria-label="CPU and memory samples"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div><span class="panel-kicker">Completion windows</span><h2>Traffic pulse</h2></div>
+            <span id="success-rate" class="value-chip">— success</span>
+          </div>
+          <div id="traffic-chart" class="chart mid-chart" role="img" aria-label="Request completion volume"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div><span class="panel-kicker">Balancer output</span><h2>Backend distribution</h2></div>
+          </div>
+          <div id="backend-bars" class="backend-bars empty-state">Awaiting backend observations</div>
+        </article>
+
+        <article class="panel events-panel">
+          <div class="panel-head">
+            <div><span class="panel-kicker">Scenario event stream</span><h2>Run log</h2></div>
+            <span id="event-count" class="value-chip">0 events</span>
+          </div>
+          <ol id="event-list" class="event-list"><li class="empty-state">Awaiting events</li></ol>
+        </article>
+      </section>
+
+      <section class="replay-dock" aria-label="Replay controls">
+        <div class="replay-status">
+          <span id="replay-mode-icon" class="replay-icon">↺</span>
+          <div><small id="replay-caption">Replay position</small><b id="replay-time">00:00.000 / 00:00.000</b></div>
+        </div>
+        <button id="play-button" class="play-button" aria-label="Play replay"><span>▶</span></button>
+        <input id="timeline" type="range" min="0" max="1000" value="1000" aria-label="Replay timeline">
+        <label class="speed-control">Speed
+          <select id="speed-select" aria-label="Replay speed">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="5">5×</option>
+            <option value="10">10×</option>
+          </select>
+        </label>
+        <button id="live-button" class="live-button"><span></span>Jump to live</button>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

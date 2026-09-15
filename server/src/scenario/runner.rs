@@ -6,10 +6,7 @@ use std::{
     io::{BufWriter, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -29,7 +26,7 @@ use super::{
         CollectionEndpoint, CollectionPhase, ExperimentManifest, ExternalCommand, ScenarioManifest,
     },
     resources::start_resource_monitor,
-    workload::{RequestMeasurement, stable_hash, unix_timestamp_ms},
+    workload::{RequestLog, RequestMeasurement, stable_hash, unix_timestamp_ms},
 };
 
 #[derive(Debug)]
@@ -291,7 +288,14 @@ impl ScenarioRunner {
 
         let started_unix_ms = unix_timestamp_ms();
         let run_started = Instant::now();
-        let events = Arc::new(EventLog::default());
+        let events = match EventLog::create(&run_directory) {
+            Ok(events) => Arc::new(events),
+            Err(error) => {
+                let mut report = report_base();
+                report.error = Some(error.to_string());
+                return report;
+            }
+        };
         let context = PlaceholderContext {
             manifest_directory: self
                 .manifest
@@ -457,6 +461,7 @@ impl ScenarioRunner {
                 json!({"count": scenario.workloads.len(), "seed": planned.seed}),
                 Some(workload_origin),
             );
+            let request_log = Arc::new(RequestLog::create(&run_directory)?);
             let resource_monitor = start_resource_monitor(
                 server_process
                     .as_ref()
@@ -480,6 +485,7 @@ impl ScenarioRunner {
                     let events = Arc::clone(&events);
                     let workload_id = workload.id.clone();
                     let workload_seed = planned.seed ^ stable_hash(&workload.id);
+                    let request_log = Arc::clone(&request_log);
                     thread::spawn(move || {
                         let measurements = super::workload::run_workload(
                             workload,
@@ -487,6 +493,7 @@ impl ScenarioRunner {
                             default_timeout,
                             workload_seed,
                             workload_origin,
+                            request_log,
                         );
                         events.record(
                             "workload_completed",
@@ -530,7 +537,7 @@ impl ScenarioRunner {
                 json!({"measurements": measurements.len()}),
                 Some(workload_origin),
             );
-            write_json_lines(run_directory.join("requests.jsonl"), &measurements)?;
+            request_log.finish()?;
             if !workload_errors.is_empty() {
                 return Err(RunnerError::new(workload_errors.join("; ")));
             }
@@ -584,7 +591,7 @@ impl ScenarioRunner {
                 cleanup_errors.join("; ")
             ))),
         };
-        if let Err(event_error) = events.write(run_directory.join("events.jsonl")) {
+        if let Err(event_error) = events.finish() {
             execution = match execution {
                 Ok(_) => Err(event_error),
                 Err(error) => Err(RunnerError::new(format!(
@@ -1102,13 +1109,31 @@ struct EventRecord {
     details: Value,
 }
 
-#[derive(Default)]
 struct EventLog {
-    sequence: AtomicU64,
-    records: Mutex<Vec<EventRecord>>,
+    state: Mutex<EventLogState>,
+}
+
+struct EventLogState {
+    sequence: u64,
+    writer: BufWriter<File>,
+    error: Option<String>,
 }
 
 impl EventLog {
+    fn create(run_directory: &Path) -> Result<Self, RunnerError> {
+        let path = run_directory.join("events.jsonl");
+        let file = File::create(&path).map_err(|error| {
+            RunnerError::new(format!("failed to create {}: {error}", path.display()))
+        })?;
+        Ok(Self {
+            state: Mutex::new(EventLogState {
+                sequence: 0,
+                writer: BufWriter::new(file),
+                error: None,
+            }),
+        })
+    }
+
     fn record(
         &self,
         event: &str,
@@ -1117,9 +1142,13 @@ impl EventLog {
         details: Value,
         origin: Option<Instant>,
     ) {
+        let mut state = self.state.lock().unwrap();
+        if state.error.is_some() {
+            return;
+        }
         let record = EventRecord {
             schema_version: 1,
-            sequence: self.sequence.fetch_add(1, Ordering::Relaxed),
+            sequence: state.sequence,
             timestamp_unix_ms: unix_timestamp_ms(),
             elapsed_us: origin
                 .map(|origin| origin.elapsed().as_micros().min(u128::from(u64::MAX)) as u64),
@@ -1128,13 +1157,30 @@ impl EventLog {
             success,
             details,
         };
-        self.records.lock().unwrap().push(record);
+        let result = (|| -> Result<(), String> {
+            let mut line = serde_json::to_vec(&record).map_err(|error| error.to_string())?;
+            line.push(b'\n');
+            state
+                .writer
+                .write_all(&line)
+                .map_err(|error| error.to_string())?;
+            state.writer.flush().map_err(|error| error.to_string())
+        })();
+        match result {
+            Ok(()) => state.sequence = state.sequence.saturating_add(1),
+            Err(error) => state.error = Some(error.to_string()),
+        }
     }
 
-    fn write(&self, path: PathBuf) -> Result<(), RunnerError> {
-        let mut records = self.records.lock().unwrap();
-        records.sort_by_key(|record| record.sequence);
-        write_json_lines(path, records.as_slice())
+    fn finish(&self) -> Result<(), RunnerError> {
+        let mut state = self.state.lock().unwrap();
+        state.writer.flush()?;
+        match &state.error {
+            Some(error) => Err(RunnerError::new(format!(
+                "failed to stream events.jsonl: {error}"
+            ))),
+            None => Ok(()),
+        }
     }
 }
 
@@ -1275,19 +1321,6 @@ fn write_json(path: PathBuf, value: &impl Serialize) -> Result<(), RunnerError> 
     Ok(())
 }
 
-fn write_json_lines<T: Serialize>(path: PathBuf, values: &[T]) -> Result<(), RunnerError> {
-    let file = File::create(&path).map_err(|error| {
-        RunnerError::new(format!("failed to create {}: {error}", path.display()))
-    })?;
-    let mut writer = BufWriter::new(file);
-    for value in values {
-        serde_json::to_writer(&mut writer, value)?;
-        writer.write_all(b"\n")?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1377,5 +1410,30 @@ workloads = [{ id = "load", requests = 1, concurrency = 1 }]
         });
         assert!(verify_algorithm(&metrics, "default", AlgorithmKind::RoundRobin).is_ok());
         assert!(verify_algorithm(&metrics, "default", AlgorithmKind::LeastConnections).is_err());
+    }
+
+    #[test]
+    fn event_log_is_visible_before_the_run_finishes() {
+        let directory = std::env::temp_dir().join(format!(
+            "webserver-event-log-{}-{}",
+            std::process::id(),
+            unix_timestamp_ms()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let events = EventLog::create(&directory).unwrap();
+        events.record(
+            "workloads_started",
+            "all",
+            Some(true),
+            json!({"count": 2}),
+            None,
+        );
+
+        let contents = fs::read_to_string(directory.join("events.jsonl")).unwrap();
+        let event: Value = serde_json::from_str(contents.trim()).unwrap();
+        assert_eq!(event["sequence"], 0);
+        assert_eq!(event["event"], "workloads_started");
+        events.finish().unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 }

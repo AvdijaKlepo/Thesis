@@ -321,6 +321,13 @@ pub fn analyze_experiment(
     Ok(report)
 }
 
+/// Derives the same run-level metrics used by [`analyze_experiment`] without
+/// writing analysis artifacts. This is used by the dashboard for both active
+/// runs and saved-run replay.
+pub fn analyze_run_snapshot(run_directory: &Path) -> Result<RunAnalysis, AnalysisError> {
+    analyze_run(run_directory, true).map(|(run, _)| run)
+}
+
 fn methodology() -> Methodology {
     Methodology {
         throughput: "request completions divided by the interval from the first request start to the last request completion; successful throughput uses HTTP-successful completions",

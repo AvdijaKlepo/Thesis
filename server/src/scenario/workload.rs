@@ -1,7 +1,10 @@
 use std::{
+    fs::File,
+    io::{BufWriter, Write},
     net::SocketAddr,
+    path::Path,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     thread,
@@ -13,6 +16,7 @@ use serde::Serialize;
 use crate::management::{HttpRequest, send_http};
 
 use super::manifest::WorkloadManifest;
+use super::runner::RunnerError;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct RequestMeasurement {
@@ -37,12 +41,67 @@ pub(crate) struct RequestMeasurement {
     pub error: Option<String>,
 }
 
+pub(crate) struct RequestLog {
+    writer: Mutex<RequestLogWriter>,
+}
+
+struct RequestLogWriter {
+    writer: BufWriter<File>,
+    error: Option<String>,
+}
+
+impl RequestLog {
+    pub(crate) fn create(run_directory: &Path) -> Result<Self, RunnerError> {
+        let path = run_directory.join("requests.jsonl");
+        let file = File::create(&path).map_err(|error| {
+            RunnerError::new(format!("failed to create {}: {error}", path.display()))
+        })?;
+        Ok(Self {
+            writer: Mutex::new(RequestLogWriter {
+                writer: BufWriter::new(file),
+                error: None,
+            }),
+        })
+    }
+
+    fn record(&self, measurement: &RequestMeasurement) {
+        let mut state = self.writer.lock().unwrap();
+        if state.error.is_some() {
+            return;
+        }
+        let result = (|| -> Result<(), String> {
+            let mut line = serde_json::to_vec(measurement).map_err(|error| error.to_string())?;
+            line.push(b'\n');
+            state
+                .writer
+                .write_all(&line)
+                .map_err(|error| error.to_string())?;
+            state.writer.flush().map_err(|error| error.to_string())
+        })();
+        if let Err(error) = result {
+            state.error = Some(error.to_string());
+        }
+    }
+
+    pub(crate) fn finish(&self) -> Result<(), RunnerError> {
+        let mut state = self.writer.lock().unwrap();
+        state.writer.flush()?;
+        match &state.error {
+            Some(error) => Err(RunnerError::new(format!(
+                "failed to stream requests.jsonl: {error}"
+            ))),
+            None => Ok(()),
+        }
+    }
+}
+
 pub(crate) fn run_workload(
     workload: WorkloadManifest,
     target: SocketAddr,
     default_timeout: Duration,
     run_seed: u64,
     origin: Instant,
+    request_log: Arc<RequestLog>,
 ) -> Vec<RequestMeasurement> {
     let next_request = Arc::new(AtomicUsize::new(0));
     let workload = Arc::new(workload);
@@ -51,6 +110,7 @@ pub(crate) fn run_workload(
     for worker_id in 0..workload.concurrency {
         let workload = Arc::clone(&workload);
         let next_request = Arc::clone(&next_request);
+        let request_log = Arc::clone(&request_log);
         workers.push(thread::spawn(move || {
             let mut measurements = Vec::new();
             loop {
@@ -60,7 +120,7 @@ pub(crate) fn run_workload(
                 }
                 let scheduled_offset = scheduled_offset(&workload, request_index, run_seed);
                 sleep_until(origin + scheduled_offset);
-                measurements.push(execute_request(
+                let measurement = execute_request(
                     &workload,
                     request_index,
                     worker_id,
@@ -68,7 +128,9 @@ pub(crate) fn run_workload(
                     default_timeout,
                     scheduled_offset,
                     origin,
-                ));
+                );
+                request_log.record(&measurement);
+                measurements.push(measurement);
             }
             measurements
         }));
@@ -227,7 +289,7 @@ pub(crate) fn unix_timestamp_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, fs};
 
     fn workload() -> WorkloadManifest {
         WorkloadManifest {
@@ -262,5 +324,44 @@ mod tests {
     #[test]
     fn stable_hash_does_not_depend_on_process_state() {
         assert_eq!(stable_hash("scenario"), 0xde4217cc72f4d0cf);
+    }
+
+    #[test]
+    fn request_log_is_visible_before_the_workload_finishes() {
+        let directory = std::env::temp_dir().join(format!(
+            "webserver-request-log-{}-{}",
+            std::process::id(),
+            unix_timestamp_ms()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let log = RequestLog::create(&directory).unwrap();
+        log.record(&RequestMeasurement {
+            schema_version: 1,
+            workload_id: "paced".into(),
+            request_index: 0,
+            worker_id: 0,
+            method: "GET".into(),
+            path: "/".into(),
+            scheduled_offset_us: 0,
+            started_offset_us: 10,
+            started_unix_ms: 100,
+            completed_unix_ms: 101,
+            latency_us: 50,
+            transport_success: true,
+            http_success: true,
+            status_code: Some(200),
+            response_bytes: 12,
+            response_truncated: false,
+            backend_id: Some("backend-1".into()),
+            fixture_request_id: Some("1".into()),
+            error: None,
+        });
+
+        let contents = fs::read_to_string(directory.join("requests.jsonl")).unwrap();
+        let request: serde_json::Value = serde_json::from_str(contents.trim()).unwrap();
+        assert_eq!(request["workload_id"], "paced");
+        assert_eq!(request["latency_us"], 50);
+        log.finish().unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 }

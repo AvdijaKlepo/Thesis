@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod backend;
 pub mod config;
 pub mod control;
+pub mod dashboard;
 pub mod fixture;
 pub mod management;
 pub mod observability;

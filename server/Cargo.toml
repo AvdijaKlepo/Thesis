@@ -19,6 +19,10 @@ path = "src/bin/analyze_results.rs"
 name = "serverctl"
 path = "src/bin/serverctl.rs"
 
+[[bin]]
+name = "dashboard"
+path = "src/bin/dashboard.rs"
+
 [dependencies]
 arc-swap = "1.9.2"
 tiny_http = "0.12.0"
