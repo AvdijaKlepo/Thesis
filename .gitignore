@@ -1,4 +1,28 @@
+# Benchmark and analysis output
 /results/
-/server/target/
+
+# Rust build output
+**/target/
+
+# Python caches and virtual environments
 **/__pycache__/
 *.py[cod]
+.venv/
+venv/
+
+# Local runtime and smoke-test state
+**/.management-smoke/
+*.log
+*.tmp
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.vs/
+.DS_Store
+Thumbs.db

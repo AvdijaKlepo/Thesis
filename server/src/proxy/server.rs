@@ -10,7 +10,7 @@ use crate::{
     proxy::connection::proxy_connections,
     proxy::runtime::{RuntimeMode, proxy_connections_async},
     service::ServiceRouter,
-    worker::ThreadPool,
+    thread_pool::worker::ThreadPool,
 };
 
 pub struct ProxyServer {

@@ -12,11 +12,8 @@ pub mod scenario;
 pub mod service;
 pub mod thread_pool;
 
-pub use crate::backend::backend_server::Backend;
-
-pub use crate::backend::backend_server::BackendServer;
+pub use crate::backend::model::Backend;
 pub use crate::observability::{Observability, RequestObservation, RequestOutcome};
 pub use crate::service::{RouteMatcher, Service, ServiceRegistry, ServiceRouter, ServiceTarget};
 
 pub use proxy::runtime::RuntimeMode;
-pub use thread_pool::worker;

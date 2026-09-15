@@ -275,14 +275,6 @@ mod linux {
             .map_err(|_| format!("invalid {name} in /proc process stat"))
     }
 }
-
 #[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn samples_the_current_process() {
-        let usage = process_usage(std::process::id()).unwrap();
-        assert!(usage.resident_memory_bytes > 0);
-    }
-}
+#[path = "resources_tests.rs"]
+mod tests;

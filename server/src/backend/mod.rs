@@ -1,6 +1,6 @@
-pub mod backend_server;
+pub mod model;
 pub mod pool;
 pub mod registry;
 
-pub use backend_server::BackendServer;
+pub use model::Backend;
 pub use pool::{BackendPool, BackendPoolError, BackendSelection, BackendSelectionError};

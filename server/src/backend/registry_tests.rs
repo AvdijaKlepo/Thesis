@@ -1,0 +1,93 @@
+use super::*;
+use crate::Backend;
+use std::sync::atomic::Ordering;
+
+fn backend_node(id: &str, port: u16) -> BackendNode {
+    BackendNode::new(Backend {
+        id: id.into(),
+        address: format!("127.0.0.1:{port}"),
+        weight: 1,
+    })
+}
+
+#[test]
+fn can_add_and_get_backend() {
+    let registry = BackendRegistry::new();
+
+    registry.add(backend_node("1", 8081));
+
+    let result = registry.get("1");
+
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().address, "127.0.0.1:8081");
+}
+
+#[test]
+fn can_remove_backend() {
+    let registry = BackendRegistry::new();
+
+    registry.add(backend_node("1", 8081));
+
+    let removed = registry.remove("1");
+
+    assert!(removed.is_some());
+    assert!(registry.get("1").is_none());
+}
+
+#[test]
+fn all_returns_all_backends() {
+    let registry = BackendRegistry::new();
+
+    registry.add(backend_node("1", 8081));
+    registry.add(backend_node("2", 8082));
+    registry.add(backend_node("3", 8083));
+
+    let backends = registry.all();
+
+    assert_eq!(backends.len(), 3);
+}
+
+#[test]
+fn metrics_stay_consistent() {
+    let registry = BackendRegistry::new();
+
+    registry.add(backend_node("1", 8081));
+
+    let all1 = registry.all();
+    all1[0]
+        .metrics
+        .active_connections
+        .fetch_add(5, Ordering::Relaxed);
+    all1[0].metrics.latency_us.store(42, Ordering::Relaxed);
+
+    let all2 = registry.all();
+    assert_eq!(
+        all2[0].metrics.active_connections.load(Ordering::Relaxed),
+        5
+    );
+    assert_eq!(all2[0].metrics.latency_us.load(Ordering::Relaxed), 42);
+
+    let from_get = registry.get("1").unwrap();
+    assert_eq!(
+        from_get.metrics.active_connections.load(Ordering::Relaxed),
+        5
+    );
+    assert_eq!(from_get.metrics.latency_us.load(Ordering::Relaxed), 42);
+}
+
+#[test]
+fn test_metrics_summary() {
+    let registry = BackendRegistry::new();
+    registry.add(backend_node("1", 8081));
+    registry.add(backend_node("2", 8082));
+
+    let summary = registry.metrics_summary();
+    assert_eq!(summary.len(), 2);
+    assert_eq!(summary[0].id, "1");
+    assert_eq!(summary[0].address, "127.0.0.1:8081");
+    assert_eq!(summary[0].metrics.active_connections, 0);
+    assert!(summary[0].healthy);
+    assert_eq!(summary[1].id, "2");
+    assert_eq!(summary[1].address, "127.0.0.1:8082");
+    assert!(summary[1].healthy);
+}

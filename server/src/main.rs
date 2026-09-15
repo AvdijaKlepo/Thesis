@@ -13,9 +13,9 @@ use std::{
 use arc_swap::ArcSwap;
 use server::{
     Observability, ServiceRouter,
-    algorithms::algorithm_server::create_server,
     config::AppConfig,
     control::ControlServer,
+    management::api::create_server,
     proxy::{HealthChecker, ProxyServer},
 };
 
