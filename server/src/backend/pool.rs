@@ -49,6 +49,7 @@ impl Error for BackendPoolError {}
 pub enum BackendSelectionError {
     EmptyPool,
     NoHealthyBackends,
+    AllBackendsExcluded,
 }
 
 impl Display for BackendSelectionError {
@@ -56,6 +57,9 @@ impl Display for BackendSelectionError {
         match self {
             Self::EmptyPool => write!(formatter, "backend pool is empty"),
             Self::NoHealthyBackends => write!(formatter, "backend pool has no healthy backends"),
+            Self::AllBackendsExcluded => {
+                write!(formatter, "all eligible backends were already attempted")
+            }
         }
     }
 }
@@ -143,14 +147,30 @@ impl BackendPool {
     }
 
     pub fn select_backend(&self) -> Result<BackendSelection, BackendSelectionError> {
+        self.select_backend_excluding(&[])
+    }
+
+    pub fn select_backend_excluding(
+        &self,
+        excluded: &[&str],
+    ) -> Result<BackendSelection, BackendSelectionError> {
         let load_balancer = self.load_balancer.load_full();
         if load_balancer.backends().is_empty() {
             return Err(BackendSelectionError::EmptyPool);
         }
 
+        let allow_unhealthy = self.fail_open();
+        let has_eligible_backend = load_balancer
+            .backends()
+            .iter()
+            .any(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed));
+        if !has_eligible_backend {
+            return Err(BackendSelectionError::NoHealthyBackends);
+        }
+
         let node = load_balancer
-            .next(self.fail_open())
-            .ok_or(BackendSelectionError::NoHealthyBackends)?;
+            .next_excluding(allow_unhealthy, excluded)
+            .ok_or(BackendSelectionError::AllBackendsExcluded)?;
         Ok(BackendSelection {
             node,
             load_balancer,

@@ -45,7 +45,12 @@ pub trait LoadBalancer: Send + Sync {
     ///
     /// When `allow_unhealthy` is false, unhealthy backends are excluded.
     /// An empty eligible set always returns `None`.
-    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode>;
+    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+        self.next_excluding(allow_unhealthy, &[])
+    }
+
+    /// Selects the next eligible backend, excluding backends whose IDs are in `excluded`.
+    fn next_excluding(&self, allow_unhealthy: bool, excluded: &[&str]) -> Option<BackendNode>;
 
     fn release(&self, _backend: &BackendNode, _feedback: Feedback) {}
 
@@ -71,11 +76,14 @@ impl RoundRobin {
 }
 
 impl LoadBalancer for RoundRobin {
-    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+    fn next_excluding(&self, allow_unhealthy: bool, excluded: &[&str]) -> Option<BackendNode> {
         let eligible: Vec<&BackendNode> = self
             .backends
             .iter()
-            .filter(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            .filter(|backend| {
+                !excluded.contains(&backend.id.as_str())
+                    && (allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            })
             .collect();
         if eligible.is_empty() {
             return None;
@@ -122,14 +130,17 @@ impl WeightedRoundRobin {
 }
 
 impl LoadBalancer for WeightedRoundRobin {
-    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+    fn next_excluding(&self, allow_unhealthy: bool, excluded: &[&str]) -> Option<BackendNode> {
         let mut state = self.state.lock().unwrap();
 
         let eligible: Vec<usize> = self
             .backends
             .iter()
             .enumerate()
-            .filter(|(_, backend)| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            .filter(|(_, backend)| {
+                !excluded.contains(&backend.id.as_str())
+                    && (allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            })
             .map(|(index, _)| index)
             .collect();
         if eligible.is_empty() {
@@ -174,10 +185,13 @@ impl LeastConnections {
 }
 
 impl LoadBalancer for LeastConnections {
-    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+    fn next_excluding(&self, allow_unhealthy: bool, excluded: &[&str]) -> Option<BackendNode> {
         self.backends
             .iter()
-            .filter(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            .filter(|backend| {
+                !excluded.contains(&backend.id.as_str())
+                    && (allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            })
             .min_by_key(|b| b.metrics.active_connections.load(Ordering::Relaxed))
             .cloned()
     }
@@ -283,12 +297,15 @@ impl AdaptiveBalancing {
 }
 
 impl LoadBalancer for AdaptiveBalancing {
-    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+    fn next_excluding(&self, allow_unhealthy: bool, excluded: &[&str]) -> Option<BackendNode> {
         let eligible: Vec<usize> = self
             .backends
             .iter()
             .enumerate()
-            .filter(|(_, backend)| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            .filter(|(_, backend)| {
+                !excluded.contains(&backend.id.as_str())
+                    && (allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            })
             .map(|(index, _)| index)
             .collect();
         if eligible.is_empty() {
@@ -372,10 +389,13 @@ impl LeastResponseTime {
 }
 
 impl LoadBalancer for LeastResponseTime {
-    fn next(&self, allow_unhealthy: bool) -> Option<BackendNode> {
+    fn next_excluding(&self, allow_unhealthy: bool, excluded: &[&str]) -> Option<BackendNode> {
         self.backends
             .iter()
-            .filter(|backend| allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            .filter(|backend| {
+                !excluded.contains(&backend.id.as_str())
+                    && (allow_unhealthy || backend.healthy.load(Ordering::Relaxed))
+            })
             .min_by(|a, b| {
                 let a_latency = a.metrics.latency_us.load(Ordering::Relaxed);
                 let b_latency = b.metrics.latency_us.load(Ordering::Relaxed);

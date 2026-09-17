@@ -50,7 +50,7 @@ Relative paths are resolved from the manifest directory. Commands are executed d
 - `{runtime}`
 - `{repetition}`
 
-Each workload has a fixed request count and concurrency. `requests_per_second` adds deterministic pacing; `jitter_ms` adds deterministic, seed-derived positive jitter. Multiple `[[scenarios.workloads]]` entries begin from the same monotonic clock and therefore run simultaneously. Timed `[[scenarios.failures]]` actions use that same clock. A non-zero external command fails its run unless `allow_failure = true` is set on that command.
+Each workload has a fixed request count and concurrency. `requests_per_second` adds deterministic pacing; `jitter_ms` adds deterministic, seed-derived positive jitter. Multiple `[[scenarios.workloads]]` entries begin from the same monotonic clock and therefore run simultaneously. Timed `[[scenarios.failures]]` actions use that same clock. Set `target_backend_id` on a recovery action when recovery latency should be measured for a particular backend; the runner validates that the ID exists in the server configuration and records it in the event log. A non-zero external command fails its run unless `allow_failure = true` is set on that command.
 
 The example's Compose setup and recovery commands wait for fixture health before returning, keeping container startup races out of the measurement window.
 
@@ -106,7 +106,9 @@ The analyzer leaves the experiment and every run directory untouched. Its
 - `resource-usage.csv`: server-process CPU time/utilization and resident/virtual
   memory summaries from `resource-samples.jsonl`.
 - `recovery.csv`: time from a successful restore/recover/restart/resume/enable/start/heal/up
-  action to the first successful response and to five consecutive successes.
+  action's start to the first successful response and to five consecutive successes
+  from its explicitly targeted backend. Actions without `target_backend_id` retain
+  null recovery latency fields.
 - `raw-inputs.csv`: relative path, byte count, and SHA-256 digest for each source
   artifact used by the analysis.
 - `plots/*.svg`: editable, vector, color-blind-safe plots suitable for print or

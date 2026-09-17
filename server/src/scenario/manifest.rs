@@ -165,12 +165,28 @@ impl ExperimentManifest {
                     scenario.server_config.display()
                 )));
             }
-            AppConfig::load(&scenario.server_config).map_err(|error| {
+            let config = AppConfig::load(&scenario.server_config).map_err(|error| {
                 ManifestError::Invalid(format!(
                     "server_config for scenario '{}' is invalid: {error}",
                     scenario.id
                 ))
             })?;
+            for failure in &scenario.failures {
+                let Some(target) = failure.target_backend_id.as_deref() else {
+                    continue;
+                };
+                let exists = config
+                    .services
+                    .iter()
+                    .flat_map(|service| &service.backends)
+                    .any(|backend| backend.id == target);
+                if !exists {
+                    return Err(ManifestError::Invalid(format!(
+                        "failure '{}' targets backend '{}' which is not present in scenario '{}'",
+                        failure.id, target, scenario.id
+                    )));
+                }
+            }
         }
         if let Some(directory) = &self.server.working_directory
             && !directory.is_dir()
@@ -498,12 +514,23 @@ fn default_max_response_bytes() -> usize {
 pub struct FailureEvent {
     pub id: String,
     pub at_ms: u64,
+    pub target_backend_id: Option<String>,
     pub action: ExternalCommand,
 }
 
 impl FailureEvent {
     fn validate(&self) -> Result<(), ManifestError> {
         validate_id("failure", &self.id)?;
+        if self
+            .target_backend_id
+            .as_ref()
+            .is_some_and(|id| id.trim().is_empty())
+        {
+            return Err(ManifestError::Invalid(format!(
+                "failure '{}' target_backend_id must not be empty",
+                self.id
+            )));
+        }
         self.action.validate()
     }
 }

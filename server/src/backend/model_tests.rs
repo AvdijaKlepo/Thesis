@@ -64,6 +64,8 @@ fn test_backend_metrics_failure() {
     assert_eq!(snap.failed_requests, 1);
     assert_eq!(snap.total_bytes_sent, 50);
     assert_eq!(snap.total_bytes_received, 0);
+    // (1.0 - 0.2) * 1000 + 0.2 * 10_000_000 = 800 + 2_000_000 = 2_000_800
+    assert_eq!(snap.latency_us, 2_000_800);
 }
 
 #[test]

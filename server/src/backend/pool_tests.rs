@@ -101,3 +101,27 @@ fn fail_open_must_be_enabled_explicitly() {
         Err(BackendSelectionError::NoHealthyBackends)
     ));
 }
+
+#[test]
+fn excluding_every_eligible_backend_is_distinct_from_an_unhealthy_pool() {
+    let pool = BackendPool::new(
+        AlgorithmKind::RoundRobin,
+        vec![backend("1", 8081, 1), backend("2", 8082, 1)],
+    )
+    .unwrap();
+
+    assert!(matches!(
+        pool.select_backend_excluding(&["1", "2"]),
+        Err(BackendSelectionError::AllBackendsExcluded)
+    ));
+
+    for backend in pool.backends() {
+        backend
+            .healthy
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    assert!(matches!(
+        pool.select_backend_excluding(&["1", "2"]),
+        Err(BackendSelectionError::NoHealthyBackends)
+    ));
+}

@@ -141,6 +141,8 @@ pub struct ResourceAnalysis {
 #[derive(Clone, Debug, Serialize)]
 pub struct RecoveryAnalysis {
     pub action: String,
+    pub target_backend_id: Option<String>,
+    pub action_started_offset_ms: Option<f64>,
     pub action_completed_offset_ms: f64,
     pub first_success_offset_ms: Option<f64>,
     pub time_to_first_success_ms: Option<f64>,
@@ -335,7 +337,7 @@ fn methodology() -> Methodology {
         latency_percentiles: "end-to-end latency for all generated requests, including failures, using linear interpolation between sorted samples (R-7 / NumPy default quantile method)",
         fairness: "Jain's fairness index over per-backend request-attempt deltas; weighted fairness applies the index to requests divided by configured backend weight",
         resource_usage: "100 ms samples of the server process; average CPU is cumulative process CPU-time growth divided by sampled wall time, and memory is resident/virtual bytes",
-        recovery_time: "elapsed time from a successful recovery-action completion to the first sequence of five HTTP-successful request completions; first-success latency is also reported",
+        recovery_time: "elapsed time from a recovery action's start to the first sequence of five HTTP-successful completions from its explicitly targeted backend; actions without an explicit target report no recovery latency",
         aggregates: "arithmetic mean, sample standard deviation, and a two-sided Student's t 95% confidence interval across eligible repetitions",
     }
 }
@@ -729,30 +731,48 @@ fn recovery_analysis(
         return Ok(Vec::new());
     }
     let events: Vec<EventInput> = read_json_lines(&path)?;
-    let mut completions = requests
-        .iter()
-        .map(|request| {
-            (
-                request.started_offset_us.saturating_add(request.latency_us),
-                request.http_success,
-            )
-        })
-        .collect::<Vec<_>>();
-    completions.sort_by_key(|(completed, _)| *completed);
-
     Ok(events
         .iter()
-        .filter(|event| {
+        .enumerate()
+        .filter(|(_, event)| {
             event.event == "failure_completed"
                 && event.success == Some(true)
                 && is_recovery_action(event)
         })
-        .filter_map(|event| {
+        .filter_map(|(idx, event)| {
             let action_completed = event.elapsed_us?;
+            let action_started = events[..idx]
+                .iter()
+                .rev()
+                .find(|candidate| {
+                    candidate.event == "failure_started" && candidate.label == event.label
+                })
+                .and_then(|candidate| candidate.elapsed_us);
+            let clock_start = action_started.unwrap_or(action_completed);
+
+            let target = event
+                .details
+                .get("target_backend_id")
+                .and_then(Value::as_str)
+                .filter(|target| !target.is_empty());
+            let mut completions = requests
+                .iter()
+                .filter(|request| {
+                    target.is_some_and(|target_id| request.backend_id.as_deref() == Some(target_id))
+                })
+                .map(|request| {
+                    (
+                        request.started_offset_us.saturating_add(request.latency_us),
+                        request.http_success,
+                    )
+                })
+                .collect::<Vec<_>>();
+            completions.sort_by_key(|(completed, _)| *completed);
+
             let after = completions
                 .iter()
                 .copied()
-                .filter(|(completed, _)| *completed >= action_completed)
+                .filter(|(completed, _)| *completed >= clock_start)
                 .collect::<Vec<_>>();
             let first_success = after
                 .iter()
@@ -761,35 +781,37 @@ fn recovery_analysis(
             let stable_success = first_stable_success(&after, STABLE_RECOVERY_SUCCESSES);
             Some(RecoveryAnalysis {
                 action: event.label.clone(),
+                target_backend_id: target.map(str::to_owned),
+                action_started_offset_ms: action_started.map(|value| value as f64 / 1_000.0),
                 action_completed_offset_ms: action_completed as f64 / 1_000.0,
                 first_success_offset_ms: first_success.map(|value| value as f64 / 1_000.0),
                 time_to_first_success_ms: first_success
-                    .map(|value| value.saturating_sub(action_completed) as f64 / 1_000.0),
+                    .map(|value| value.saturating_sub(clock_start) as f64 / 1_000.0),
                 stable_success_offset_ms: stable_success.map(|value| value as f64 / 1_000.0),
                 time_to_stable_success_ms: stable_success
-                    .map(|value| value.saturating_sub(action_completed) as f64 / 1_000.0),
+                    .map(|value| value.saturating_sub(clock_start) as f64 / 1_000.0),
                 stable_successes_required: STABLE_RECOVERY_SUCCESSES,
             })
         })
         .collect())
 }
 
-fn is_recovery_action(event: &EventInput) -> bool {
-    fn is_recovery_word(word: &str) -> bool {
-        matches!(
-            word,
-            "recover"
-                | "recovery"
-                | "restore"
-                | "restart"
-                | "resume"
-                | "enable"
-                | "start"
-                | "heal"
-                | "up"
-        )
-    }
+fn is_recovery_word(word: &str) -> bool {
+    matches!(
+        word,
+        "recover"
+            | "recovery"
+            | "restore"
+            | "restart"
+            | "resume"
+            | "enable"
+            | "start"
+            | "heal"
+            | "up"
+    )
+}
 
+fn is_recovery_action(event: &EventInput) -> bool {
     let label = event.label.to_ascii_lowercase();
     if label
         .split(|character: char| !character.is_ascii_alphanumeric())
@@ -1231,6 +1253,8 @@ fn write_recovery_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
             "algorithm",
             "runtime",
             "action",
+            "target_backend_id",
+            "action_started_offset_ms",
             "action_completed_offset_ms",
             "first_success_offset_ms",
             "time_to_first_success_ms",
@@ -1249,6 +1273,8 @@ fn write_recovery_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
                     run.algorithm.clone(),
                     run.runtime.clone(),
                     recovery.action.clone(),
+                    recovery.target_backend_id.clone().unwrap_or_default(),
+                    optional_number(recovery.action_started_offset_ms),
                     format_number(recovery.action_completed_offset_ms),
                     optional_number(recovery.first_success_offset_ms),
                     optional_number(recovery.time_to_first_success_ms),

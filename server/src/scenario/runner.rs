@@ -379,6 +379,7 @@ impl ScenarioRunner {
                     None,
                     "setup",
                     &format!("setup-{}", index + 1),
+                    None,
                 )?;
             }
 
@@ -577,6 +578,7 @@ impl ScenarioRunner {
                 None,
                 "teardown",
                 &format!("teardown-{}", index + 1),
+                None,
             ) {
                 cleanup_errors.push(error.to_string());
             }
@@ -865,6 +867,7 @@ fn start_failures(
                     Some(origin),
                     "failure",
                     &failure.id,
+                    failure.target_backend_id.as_deref(),
                 )
                 .err()
                 .map(|error| error.to_string())
@@ -887,13 +890,18 @@ fn run_checked_command(
     origin: Option<Instant>,
     kind: &str,
     label: &str,
+    target_backend_id: Option<&str>,
 ) -> Result<(), RunnerError> {
     let rendered = render_command(&action.command, &action.args, context);
+    let started_details = match target_backend_id {
+        Some(target) => json!({"command": &rendered, "target_backend_id": target}),
+        None => json!({"command": &rendered}),
+    };
     events.record(
         &format!("{kind}_started"),
         label,
         None,
-        json!({"command": rendered}),
+        started_details,
         origin,
     );
     let started = Instant::now();
@@ -925,11 +933,15 @@ fn run_checked_command(
             error: Some(error.to_string()),
         },
     };
+    let mut completed_details = serde_json::to_value(&result).unwrap_or(Value::Null);
+    if let (Some(target), Value::Object(details)) = (target_backend_id, &mut completed_details) {
+        details.insert("target_backend_id".into(), Value::String(target.into()));
+    }
     events.record(
         &format!("{kind}_completed"),
         label,
         Some(result.success),
-        serde_json::to_value(&result).unwrap_or(Value::Null),
+        completed_details,
         origin,
     );
     if result.success || action.allow_failure {

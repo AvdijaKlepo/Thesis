@@ -51,6 +51,23 @@ fn retries_connect_failures_for_any_method() {
 }
 
 #[test]
+fn exhausting_distinct_backends_produces_bad_gateway() {
+    let request = request("GET");
+    let observability = Observability::new(["default"], false);
+    let mut exchange = exchange(&request, &observability);
+    let NextAttempt::Ready(attempt) = exchange.next_attempt() else {
+        panic!("attempt expected");
+    };
+    assert!(exchange.attempt_failed(attempt, AttemptFailure::Connect, 0, 0));
+
+    assert!(matches!(exchange.next_attempt(), NextAttempt::Exhausted));
+    let result = exchange.attempts_failed(0);
+    assert_eq!(result.status_code, 502);
+    assert_eq!(result.outcome, RequestOutcome::BackendAttemptsFailed);
+    assert_eq!(result.attempts, 1);
+}
+
+#[test]
 fn retries_post_write_failures_only_for_idempotent_methods() {
     for (method, expected) in [("GET", true), ("POST", false)] {
         let request = request(method);

@@ -298,3 +298,141 @@ fn adaptive_balancing_treats_transport_failure_as_deadline_miss() {
 
     assert_eq!(lb.next(false).unwrap().id, "healthy");
 }
+
+#[test]
+fn least_response_time_avoids_failing_backend() {
+    let healthy = test_node("healthy", 8081, 1);
+    let failing = test_node("failing", 8082, 1);
+
+    // Initial state: both have default 1 ms latency.
+    // Failing backend receives a request and fails:
+    failing.metrics.record_start();
+    failing.metrics.record_end(&feedback(10, false), 0, 0);
+
+    // Healthy backend receives a request and succeeds:
+    healthy.metrics.record_start();
+    healthy.metrics.record_end(&feedback(40, true), 100, 200);
+
+    let lrt = LeastResponseTime::new(vec![failing.clone(), healthy.clone()]);
+    // Failing backend's latency was heavily penalized, so LRT chooses healthy
+    assert_eq!(lrt.next(false).unwrap().id, "healthy");
+}
+
+#[test]
+fn least_response_time_prefers_lower_latency() {
+    let fast = test_node("fast", 8081, 1);
+    let slow = test_node("slow", 8082, 1);
+
+    fast.metrics.latency_us.store(20_000, Ordering::Relaxed);
+    slow.metrics.latency_us.store(100_000, Ordering::Relaxed);
+
+    let lrt = LeastResponseTime::new(vec![fast.clone(), slow.clone()]);
+    assert_eq!(lrt.next(false).unwrap().id, "fast");
+}
+
+#[test]
+fn least_response_time_considers_active_connections() {
+    let n1 = test_node("1", 8081, 1);
+    let n2 = test_node("2", 8082, 1);
+
+    n1.metrics.latency_us.store(50_000, Ordering::Relaxed);
+    n2.metrics.latency_us.store(50_000, Ordering::Relaxed);
+
+    n1.metrics.active_connections.store(3, Ordering::Relaxed); // score = 50_000 * 4 = 200_000
+    n2.metrics.active_connections.store(1, Ordering::Relaxed); // score = 50_000 * 2 = 100_000
+
+    let lrt = LeastResponseTime::new(vec![n1, n2]);
+    assert_eq!(lrt.next(false).unwrap().id, "2");
+}
+
+#[test]
+fn least_response_time_retry_excludes_failed_backend_through_proxy_exchange() {
+    use crate::algorithms::AlgorithmKind;
+    use crate::backend::BackendPool;
+    use crate::observability::{Observability, RequestOutcome};
+    use crate::proxy::RuntimeMode;
+    use crate::proxy::behavior::{AttemptFailure, NextAttempt, RequestPlan, plan_request};
+    use crate::proxy::protocol::ClientRequest;
+    use crate::service::{RouteMatcher, Service, ServiceRouter};
+
+    let pool = Arc::new(
+        BackendPool::new(
+            AlgorithmKind::LeastResponseTime,
+            vec![
+                Backend {
+                    id: "failing".into(),
+                    address: "127.0.0.1:8081".into(),
+                    weight: 1,
+                },
+                Backend {
+                    id: "healthy".into(),
+                    address: "127.0.0.1:8082".into(),
+                    weight: 1,
+                },
+            ],
+        )
+        .unwrap(),
+    );
+
+    let nodes = pool.backends();
+    let failing_node = nodes.iter().find(|node| node.id == "failing").unwrap();
+    let healthy_node = nodes.iter().find(|node| node.id == "healthy").unwrap();
+
+    // The failing backend starts with the better score. After one failure its
+    // latency EWMA becomes 2,000,800 us, which is deliberately still lower
+    // than the healthy backend's 3,000,000 us score. Only retry exclusion can
+    // make the second attempt select the healthy backend.
+    healthy_node
+        .metrics
+        .latency_us
+        .store(3_000_000, Ordering::Relaxed);
+
+    let registry = Arc::new(crate::service::ServiceRegistry::new());
+    registry
+        .add(
+            Service::proxy(
+                "default",
+                vec![RouteMatcher::new(None::<String>, "/").unwrap()],
+                Arc::clone(&pool),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let router = ServiceRouter::new(Arc::clone(&registry), "default").unwrap();
+    let request = ClientRequest {
+        raw: "GET /retry HTTP/1.1\r\nConnection: close\r\n\r\n".into(),
+        header_end: 0,
+        method: "GET".into(),
+        host: None,
+        path: "/retry".into(),
+        is_idempotent: true,
+        keep_alive: false,
+    };
+    let observability = Observability::new(["default"], false);
+    let RequestPlan::Proxy(mut exchange) =
+        plan_request(RuntimeMode::ThreadPool, &request, &router, &observability)
+    else {
+        panic!("proxy request plan expected");
+    };
+
+    let NextAttempt::Ready(attempt1) = exchange.next_attempt() else {
+        panic!("first attempt expected");
+    };
+    assert_eq!(attempt1.backend_id(), "failing");
+
+    assert!(exchange.attempt_failed(attempt1, AttemptFailure::Connect, 0, 0));
+    assert_eq!(
+        failing_node.metrics.latency_us.load(Ordering::Relaxed),
+        2_000_800
+    );
+
+    let NextAttempt::Ready(attempt2) = exchange.next_attempt() else {
+        panic!("second attempt expected");
+    };
+    assert_eq!(attempt2.backend_id(), "healthy");
+
+    let result = exchange.attempt_succeeded(attempt2, 200, 50, 100);
+    assert_eq!(result.outcome, RequestOutcome::Completed);
+    assert_eq!(result.backend_id, "healthy");
+    assert_eq!(result.attempts, 2);
+}

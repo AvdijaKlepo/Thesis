@@ -130,6 +130,7 @@ pub struct ProxyExchange<'a> {
     upstream_bytes_sent: usize,
     downstream_bytes_sent: usize,
     last_backend_id: String,
+    attempted_backends: Vec<String>,
 }
 
 impl<'a> ProxyExchange<'a> {
@@ -144,6 +145,7 @@ impl<'a> ProxyExchange<'a> {
             upstream_bytes_sent: 0,
             downstream_bytes_sent: 0,
             last_backend_id: "none".into(),
+            attempted_backends: Vec::new(),
         }
     }
 
@@ -156,12 +158,15 @@ impl<'a> ProxyExchange<'a> {
             return NextAttempt::Exhausted;
         }
 
-        match self.backend_pool.select_backend() {
+        let excluded: Vec<&str> = self.attempted_backends.iter().map(String::as_str).collect();
+        match self.backend_pool.select_backend_excluding(&excluded) {
             Ok(backend) => {
                 self.attempts += 1;
                 self.last_backend_id = backend.backend.id.clone();
+                self.attempted_backends.push(backend.backend.id.clone());
                 NextAttempt::Ready(ProxyAttempt::new(backend))
             }
+            Err(BackendSelectionError::AllBackendsExcluded) => NextAttempt::Exhausted,
             Err(error) => NextAttempt::NoEligibleBackend(error),
         }
     }

@@ -78,6 +78,7 @@ timeout_ms = 5000
 [[scenarios.failures]]
 id = "stop-healthy-backend"
 at_ms = 2000
+target_backend_id = "failure-healthy"
 
 [scenarios.failures.action]
 command = "docker"
@@ -89,6 +90,7 @@ working_directory = ".."
 [[scenarios.failures]]
 id = "restore-healthy-backend"
 at_ms = 4500
+target_backend_id = "failure-healthy"
 
 [scenarios.failures.action]
 command = "docker"

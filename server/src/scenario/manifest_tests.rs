@@ -42,6 +42,28 @@ fn parses_a_matrix_manifest() {
     assert_eq!(manifest.runtimes.len(), 2);
     assert_eq!(manifest.scenarios[0].collect[0].phases.len(), 2);
     assert_eq!(manifest.scenarios[0].workloads[0].method, "GET");
+    assert_eq!(manifest.scenarios[0].failures[0].target_backend_id, None);
+}
+
+#[test]
+fn parses_and_validates_an_explicit_failure_target() {
+    let targeted = VALID.replace(
+        "at_ms = 250",
+        "at_ms = 250\ntarget_backend_id = \"backend-one\"",
+    );
+    let manifest = ExperimentManifest::from_toml(&targeted).unwrap();
+    assert_eq!(
+        manifest.scenarios[0].failures[0]
+            .target_backend_id
+            .as_deref(),
+        Some("backend-one")
+    );
+
+    let empty = VALID.replace("at_ms = 250", "at_ms = 250\ntarget_backend_id = \" \"");
+    assert!(matches!(
+        ExperimentManifest::from_toml(&empty),
+        Err(ManifestError::Invalid(_))
+    ));
 }
 
 #[test]

@@ -41,11 +41,14 @@ pub struct Feedback {
     pub success: bool,
 }
 
+pub const DEFAULT_INITIAL_LATENCY: Duration = Duration::from_millis(1);
+pub const DEFAULT_FAILURE_PENALTY: Duration = Duration::from_secs(10);
+
 impl BackendMetrics {
     pub fn new() -> Self {
         Self {
             active_connections: AtomicUsize::new(0),
-            latency_us: AtomicU64::new(1000),
+            latency_us: AtomicU64::new(DEFAULT_INITIAL_LATENCY.as_micros() as u64),
             total_requests: AtomicU64::new(0),
             successful_requests: AtomicU64::new(0),
             failed_requests: AtomicU64::new(0),
@@ -81,6 +84,14 @@ impl BackendMetrics {
         } else {
             self.failed_requests
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            let penalty = (feedback.latency.as_micros() as u64)
+                .max(DEFAULT_FAILURE_PENALTY.as_micros() as u64);
+            let old = self.latency_us.load(std::sync::atomic::Ordering::Relaxed);
+            let alpha = 0.2;
+            let new_latency = ((1.0 - alpha) * old as f64 + alpha * penalty as f64) as u64;
+            self.latency_us
+                .store(new_latency.max(1), std::sync::atomic::Ordering::Relaxed);
         }
 
         self.total_bytes_sent
