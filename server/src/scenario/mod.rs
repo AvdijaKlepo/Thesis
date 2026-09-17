@@ -6,7 +6,7 @@ mod runner;
 mod workload;
 
 pub use manifest::{
-    CollectionEndpoint, CollectionPhase, ExperimentManifest, ExternalCommand, FailureEvent,
-    ScenarioManifest, ServerLaunch, WorkloadManifest,
+    AnalysisWindow, CollectionEndpoint, CollectionPhase, ExecutionOrder, ExperimentManifest,
+    ExternalCommand, FailureEvent, FixtureChange, ScenarioManifest, ServerLaunch, WorkloadManifest,
 };
 pub use runner::{ExperimentReport, PlannedRun, RunnerOptions, ScenarioRunner};

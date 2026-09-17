@@ -1,0 +1,301 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/adaptive-phase-change-12.toml
+schema_version = 1
+name = "adaptive-phase-change-12"
+seed = 20260929
+repetitions = 5
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
+runtimes = ["async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "adaptive-phase-change-12"
+description = "Swap fast and slow latency cohorts after warm-up, then restore them to measure adaptation and recovery."
+server_config = "../server/config/fixtures/variable-latency-12.toml"
+workload_seed_group = "adaptive-phase-change-12"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "variable-latency-12", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "latency12-fast-1", "latency12-fast-2", "latency12-fast-3", "latency12-fast-4", "latency12-variable-1", "latency12-variable-2", "latency12-variable-3", "latency12-variable-4", "latency12-slow-1", "latency12-slow-2", "latency12-slow-3", "latency12-slow-4"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "variable-latency-12", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.fixture_changes]]
+id = "swap-fast-to-slow-1"
+at_ms = 5000
+address = "127.0.0.1:6701"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "swap-fast-to-slow-2"
+at_ms = 5000
+address = "127.0.0.1:6702"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "swap-fast-to-slow-3"
+at_ms = 5000
+address = "127.0.0.1:6703"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "swap-fast-to-slow-4"
+at_ms = 5000
+address = "127.0.0.1:6704"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "swap-slow-to-fast-1"
+at_ms = 5000
+address = "127.0.0.1:6709"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "swap-slow-to-fast-2"
+at_ms = 5000
+address = "127.0.0.1:6710"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "swap-slow-to-fast-3"
+at_ms = 5000
+address = "127.0.0.1:6711"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "swap-slow-to-fast-4"
+at_ms = 5000
+address = "127.0.0.1:6712"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "restore-fast-cohort-1"
+at_ms = 11000
+address = "127.0.0.1:6701"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "restore-fast-cohort-2"
+at_ms = 11000
+address = "127.0.0.1:6702"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "restore-fast-cohort-3"
+at_ms = 11000
+address = "127.0.0.1:6703"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "restore-fast-cohort-4"
+at_ms = 11000
+address = "127.0.0.1:6704"
+patch = { latency_ms = 5 }
+
+[[scenarios.fixture_changes]]
+id = "restore-slow-cohort-1"
+at_ms = 11000
+address = "127.0.0.1:6709"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "restore-slow-cohort-2"
+at_ms = 11000
+address = "127.0.0.1:6710"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "restore-slow-cohort-3"
+at_ms = 11000
+address = "127.0.0.1:6711"
+patch = { latency_ms = 120 }
+
+[[scenarios.fixture_changes]]
+id = "restore-slow-cohort-4"
+at_ms = 11000
+address = "127.0.0.1:6712"
+patch = { latency_ms = 120 }
+
+[[scenarios.workloads]]
+id = "phase-change-reads"
+requests = 3200
+concurrency = 96
+method = "GET"
+path = "/experiment"
+requests_per_second = 200.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 5000
+
+[[scenarios.analysis_windows]]
+id = "swapped"
+start_ms = 5000
+end_ms = 11000
+
+[[scenarios.analysis_windows]]
+id = "recovery"
+start_ms = 11000
+end_ms = 16000
+
+[[scenarios.collect]]
+id = "latency12-fast-1-config"
+address = "127.0.0.1:6701"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-1-metrics"
+address = "127.0.0.1:6701"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-2-config"
+address = "127.0.0.1:6702"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-2-metrics"
+address = "127.0.0.1:6702"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-3-config"
+address = "127.0.0.1:6703"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-3-metrics"
+address = "127.0.0.1:6703"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-4-config"
+address = "127.0.0.1:6704"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-4-metrics"
+address = "127.0.0.1:6704"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-1-config"
+address = "127.0.0.1:6705"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-1-metrics"
+address = "127.0.0.1:6705"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-2-config"
+address = "127.0.0.1:6706"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-2-metrics"
+address = "127.0.0.1:6706"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-3-config"
+address = "127.0.0.1:6707"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-3-metrics"
+address = "127.0.0.1:6707"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-4-config"
+address = "127.0.0.1:6708"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-4-metrics"
+address = "127.0.0.1:6708"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-1-config"
+address = "127.0.0.1:6709"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-1-metrics"
+address = "127.0.0.1:6709"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-2-config"
+address = "127.0.0.1:6710"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-2-metrics"
+address = "127.0.0.1:6710"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-3-config"
+address = "127.0.0.1:6711"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-3-metrics"
+address = "127.0.0.1:6711"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-4-config"
+address = "127.0.0.1:6712"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-4-metrics"
+address = "127.0.0.1:6712"
+path = "/metrics"
+phases = ["before", "after"]
+

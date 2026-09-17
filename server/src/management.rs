@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use crate::{
     Backend,
-    algorithms::AlgorithmKind,
+    algorithms::{AlgorithmKind, balancers::AdaptiveV2Settings},
     backend::{BackendPool, BackendPoolError},
     proxy::RuntimeMode,
     service::{RouteMatcher, Service, ServiceRegistryError, ServiceTarget},
@@ -47,6 +47,8 @@ pub struct ServiceDefinition {
     pub fail_open: bool,
     #[serde(default)]
     pub backends: Vec<Backend>,
+    #[serde(default)]
+    pub adaptive_v2: AdaptiveV2Settings,
     pub root: Option<PathBuf>,
 }
 
@@ -64,6 +66,7 @@ impl ServiceDefinition {
                     .into_iter()
                     .map(|node| node.backend)
                     .collect(),
+                adaptive_v2: pool.adaptive_v2_settings(),
                 root: None,
             },
             ServiceTarget::Static { root } => Self {
@@ -73,6 +76,7 @@ impl ServiceDefinition {
                 algorithm: None,
                 fail_open: false,
                 backends: Vec::new(),
+                adaptive_v2: AdaptiveV2Settings::default(),
                 root: Some(root.clone()),
             },
         }
@@ -94,12 +98,20 @@ impl ServiceDefinition {
                 for backend in &self.backends {
                     validate_resource_id("backend", &backend.id)?;
                 }
-                let pool =
-                    BackendPool::new_with_fail_open(algorithm, self.backends, self.fail_open)?;
+                let pool = BackendPool::new_with_fail_open_and_adaptive_v2_settings(
+                    algorithm,
+                    self.backends,
+                    self.fail_open,
+                    self.adaptive_v2,
+                )?;
                 Ok(Service::proxy(self.id, routes, Arc::new(pool))?)
             }
             ManagedServiceKind::Static => {
-                if self.algorithm.is_some() || self.fail_open || !self.backends.is_empty() {
+                if self.algorithm.is_some()
+                    || self.fail_open
+                    || !self.backends.is_empty()
+                    || self.adaptive_v2 != AdaptiveV2Settings::default()
+                {
                     return Err(ManagementModelError::Invalid(
                         "static service cannot define proxy settings".into(),
                     ));
@@ -125,6 +137,8 @@ pub struct ServicePatch {
     pub routes: Option<Vec<RouteMatcher>>,
     pub algorithm: Option<AlgorithmKind>,
     pub fail_open: Option<bool>,
+    #[serde(default)]
+    pub adaptive_v2: Option<AdaptiveV2Settings>,
     pub root: Option<PathBuf>,
 }
 
@@ -133,6 +147,7 @@ impl ServicePatch {
         self.routes.is_none()
             && self.algorithm.is_none()
             && self.fail_open.is_none()
+            && self.adaptive_v2.is_none()
             && self.root.is_none()
     }
 }

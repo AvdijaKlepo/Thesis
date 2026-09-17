@@ -56,6 +56,7 @@ fn managed_service_models_validate_ids_and_normalize_routes() {
             address: "catalog-a.internal:8080".into(),
             weight: 2,
         }],
+        adaptive_v2: AdaptiveV2Settings::default(),
         root: None,
     }
     .build()
@@ -75,6 +76,7 @@ fn managed_service_models_validate_ids_and_normalize_routes() {
         algorithm: Some(AlgorithmKind::RoundRobin),
         fail_open: false,
         backends: Vec::new(),
+        adaptive_v2: AdaptiveV2Settings::default(),
         root: None,
     };
     assert!(invalid.build().is_err());

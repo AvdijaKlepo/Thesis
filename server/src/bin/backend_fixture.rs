@@ -18,6 +18,11 @@ Configuration is read from FIXTURE_* environment variables and may be overridden
 Utility:
   --healthcheck HOST:PORT
   --help
+
+Runtime control:
+  POST /control with a JSON patch for latency_ms, latency_jitter_ms,
+  processing_ms, error_rate, or error_mode; GET /config returns the effective
+  configuration.
 "#;
 
 fn main() -> ExitCode {

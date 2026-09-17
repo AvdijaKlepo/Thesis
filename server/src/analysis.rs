@@ -11,7 +11,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const ANALYSIS_SCHEMA_VERSION: u32 = 1;
+const ANALYSIS_SCHEMA_VERSION: u32 = 2;
 const STABLE_RECOVERY_SUCCESSES: usize = 5;
 
 #[derive(Debug)]
@@ -61,6 +61,7 @@ pub struct AnalysisReport {
     pub source_artifacts: Vec<SourceArtifact>,
     pub runs: Vec<RunAnalysis>,
     pub groups: Vec<GroupAnalysis>,
+    pub group_windows: Vec<GroupWindowAnalysis>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -68,8 +69,12 @@ pub struct Methodology {
     pub throughput: &'static str,
     pub errors: &'static str,
     pub latency_percentiles: &'static str,
+    pub slo: &'static str,
+    pub scheduling_lag: &'static str,
     pub fairness: &'static str,
     pub resource_usage: &'static str,
+    pub windows: &'static str,
+    pub environment_limits: &'static str,
     pub recovery_time: &'static str,
     pub aggregates: &'static str,
 }
@@ -89,6 +94,7 @@ pub struct RunAnalysis {
     pub runtime: String,
     pub repetition: usize,
     pub run_seed: u64,
+    pub slo_target_ms: Option<u64>,
     pub run_status: String,
     pub included_in_aggregates: bool,
     pub raw_directory: PathBuf,
@@ -101,10 +107,74 @@ pub struct RunAnalysis {
     pub throughput_requests_per_s: Option<f64>,
     pub successful_throughput_requests_per_s: Option<f64>,
     pub latency: LatencyAnalysis,
+    pub slo: SloAnalysis,
+    pub scheduling_lag: SchedulingLagAnalysis,
     pub fairness: FairnessAnalysis,
     pub resource_usage: ResourceAnalysis,
+    pub workloads: Vec<WorkloadAnalysis>,
+    pub windows: Vec<WindowAnalysis>,
+    pub environment_limited: bool,
     pub recoveries: Vec<RecoveryAnalysis>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct SloAnalysis {
+    pub target_ms: Option<u64>,
+    pub eligible_requests: Option<usize>,
+    pub successful_within_slo: Option<usize>,
+    pub miss_count: Option<usize>,
+    pub attainment_rate: Option<f64>,
+    pub miss_rate: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SchedulingLagAnalysis {
+    pub samples: usize,
+    pub mean_us: Option<f64>,
+    pub p50_us: Option<f64>,
+    pub p95_us: Option<f64>,
+    pub p99_us: Option<f64>,
+    pub max_us: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct WorkloadAnalysis {
+    pub workload_id: String,
+    pub total_requests: usize,
+    pub successful_requests: usize,
+    pub transport_errors: usize,
+    pub http_errors: usize,
+    pub error_rate: Option<f64>,
+    pub latency: LatencyAnalysis,
+    pub slo: SloAnalysis,
+    pub scheduling_lag: SchedulingLagAnalysis,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct WindowAnalysis {
+    pub window_id: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub total_requests: usize,
+    pub successful_requests: usize,
+    pub latency: LatencyAnalysis,
+    pub backend_requests: BTreeMap<String, u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct GroupWindowAnalysis {
+    pub scenario: String,
+    pub algorithm: String,
+    pub runtime: String,
+    pub window_id: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub runs: usize,
+    pub total_requests: StatisticalSummary,
+    pub successful_requests: StatisticalSummary,
+    pub latency_p95_us: StatisticalSummary,
+    pub backend_requests: BTreeMap<String, u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -136,6 +206,11 @@ pub struct ResourceAnalysis {
     pub peak_resident_memory_bytes: Option<u64>,
     pub mean_virtual_memory_bytes: Option<f64>,
     pub peak_virtual_memory_bytes: Option<u64>,
+    pub host_samples: usize,
+    pub host_average_cpu_percent: Option<f64>,
+    pub host_mean_memory_bytes: Option<f64>,
+    pub host_peak_memory_bytes: Option<u64>,
+    pub host_metrics_warning: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -178,6 +253,9 @@ pub struct GroupAnalysis {
     pub latency_p50_us: StatisticalSummary,
     pub latency_p95_us: StatisticalSummary,
     pub latency_p99_us: StatisticalSummary,
+    pub slo_attainment_rate: StatisticalSummary,
+    pub slo_miss_rate: StatisticalSummary,
+    pub scheduling_lag_p95_us: StatisticalSummary,
     pub fairness_jain_index: StatisticalSummary,
     pub weighted_fairness_jain_index: StatisticalSummary,
     pub average_cpu_percent: StatisticalSummary,
@@ -210,14 +288,30 @@ struct MetadataInput {
 #[derive(Debug, Deserialize)]
 struct ScenarioInput {
     id: String,
+    #[serde(default)]
+    slo_target_ms: Option<u64>,
+    #[serde(default)]
+    analysis_windows: Vec<AnalysisWindowInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnalysisWindowInput {
+    id: String,
+    start_ms: u64,
+    end_ms: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct RequestInput {
+    #[serde(default)]
+    workload_id: String,
+    #[serde(default)]
+    scheduled_offset_us: u64,
     started_offset_us: u64,
     latency_us: u64,
     transport_success: bool,
     http_success: bool,
+    #[serde(default)]
     backend_id: Option<String>,
 }
 
@@ -237,6 +331,12 @@ struct ResourceInput {
     cpu_time_us: Option<u64>,
     resident_memory_bytes: Option<u64>,
     virtual_memory_bytes: Option<u64>,
+    #[serde(default)]
+    host_cpu_percent: Option<f64>,
+    #[serde(default)]
+    host_memory_bytes: Option<u64>,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -298,6 +398,7 @@ pub fn analyze_experiment(
         backends.append(&mut run_backends);
     }
     runs.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+    apply_environment_limits(&mut runs);
     backends.sort_by(|left, right| {
         left.run_id
             .cmp(&right.run_id)
@@ -305,6 +406,7 @@ pub fn analyze_experiment(
             .then_with(|| left.backend_id.cmp(&right.backend_id))
     });
     let groups = aggregate_runs(&runs);
+    let group_windows = aggregate_windows(&runs);
     let source_artifacts =
         inventory_sources(&experiment_directory, &run_directories, &normalized_output)?;
     let report = AnalysisReport {
@@ -318,6 +420,7 @@ pub fn analyze_experiment(
         source_artifacts,
         runs,
         groups,
+        group_windows,
     };
     write_outputs(&report, &backends)?;
     Ok(report)
@@ -335,8 +438,12 @@ fn methodology() -> Methodology {
         throughput: "request completions divided by the interval from the first request start to the last request completion; successful throughput uses HTTP-successful completions",
         errors: "transport errors are failed client/proxy exchanges; HTTP errors are transport-successful responses outside 200-399; error rate is their sum divided by all requests",
         latency_percentiles: "end-to-end latency for all generated requests, including failures, using linear interpolation between sorted samples (R-7 / NumPy default quantile method)",
+        slo: "when slo_target_ms is declared, attainment counts HTTP-successful requests with latency_us <= slo_target_ms * 1,000; misses are all other requests, rates use all generated requests as the denominator, and legacy runs without a target retain null derived fields",
+        scheduling_lag: "request scheduling lag is started_offset_us - scheduled_offset_us in microseconds; p50, p95, p99, and maximum use the same linear interpolation as latency",
         fairness: "Jain's fairness index over per-backend request-attempt deltas; weighted fairness applies the index to requests divided by configured backend weight",
-        resource_usage: "100 ms samples of the server process; average CPU is cumulative process CPU-time growth divided by sampled wall time, and memory is resident/virtual bytes",
+        resource_usage: "100 ms samples retain separate proxy-process CPU/memory and whole-host CPU/memory values; unsupported host metrics remain null",
+        windows: "named half-open windows [start_ms, end_ms) select requests by started_offset_us / 1,000 and report allocation and latency without changing run-level totals",
+        environment_limits: "a run is flagged when host average CPU is at least 80%, or when scheduling-lag p95 exceeds 5 ms and is more than 25% above the matching three-backend control; flagged runs remain in raw results and aggregates but receive an explicit warning",
         recovery_time: "elapsed time from a recovery action's start to the first sequence of five HTTP-successful completions from its explicitly targeted backend; actions without an explicit target report no recovery latency",
         aggregates: "arithmetic mean, sample standard deviation, and a two-sided Student's t 95% confidence interval across eligible repetitions",
     }
@@ -412,6 +519,10 @@ fn analyze_run(
     let error_rate = (total_requests > 0)
         .then_some((transport_errors + http_errors) as f64 / total_requests as f64);
     let latency = latency_analysis(&requests);
+    let slo = slo_analysis(&requests, metadata.scenario.slo_target_ms);
+    let scheduling_lag = scheduling_lag_analysis(&requests);
+    let workloads = workload_analysis(&requests, metadata.scenario.slo_target_ms);
+    let windows = window_analysis(&requests, &metadata.scenario.analysis_windows);
 
     let (fairness, backends) = backend_analysis(run_directory, &metadata, &requests)?;
     if fairness.jain_index.is_none() {
@@ -424,7 +535,21 @@ fn analyze_run(
                 .into(),
         );
     }
+    if let Some(host_warning) = &resource_usage.host_metrics_warning {
+        warnings.push(format!(
+            "whole-host resource metrics are unavailable: {host_warning}"
+        ));
+    }
     let recoveries = recovery_analysis(run_directory, &requests)?;
+    let environment_limited = resource_usage
+        .host_average_cpu_percent
+        .is_some_and(|cpu| cpu >= 80.0);
+    if environment_limited {
+        warnings.push(
+            "run is environment-limited by host CPU; exclude it from policy claims unless analyzed as a saturation study"
+                .into(),
+        );
+    }
 
     Ok((
         RunAnalysis {
@@ -434,6 +559,7 @@ fn analyze_run(
             runtime: metadata.runtime,
             repetition: metadata.repetition,
             run_seed: metadata.run_seed,
+            slo_target_ms: metadata.scenario.slo_target_ms,
             run_status: metadata.status,
             included_in_aggregates,
             raw_directory: run_directory.to_path_buf(),
@@ -446,13 +572,57 @@ fn analyze_run(
             throughput_requests_per_s,
             successful_throughput_requests_per_s,
             latency,
+            slo,
+            scheduling_lag,
             fairness,
             resource_usage,
+            workloads,
+            windows,
+            environment_limited,
             recoveries,
             warnings,
         },
         backends,
     ))
+}
+
+fn apply_environment_limits(runs: &mut [RunAnalysis]) {
+    let mut control_lags = BTreeMap::<(String, String), Vec<f64>>::new();
+    for run in runs.iter() {
+        if run.fairness.backend_count == 3 {
+            if let Some(lag) = run.scheduling_lag.p95_us {
+                control_lags
+                    .entry((run.algorithm.clone(), run.runtime.clone()))
+                    .or_default()
+                    .push(lag);
+            }
+        }
+    }
+    let control_lags = control_lags
+        .into_iter()
+        .filter_map(|(key, values)| {
+            (!values.is_empty()).then_some((key, values.iter().sum::<f64>() / values.len() as f64))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for run in runs {
+        let host_limited = run
+            .resource_usage
+            .host_average_cpu_percent
+            .is_some_and(|cpu| cpu >= 80.0);
+        let lag_limited = run.scheduling_lag.p95_us.is_some_and(|lag| {
+            lag > 5_000.0
+                && control_lags
+                    .get(&(run.algorithm.clone(), run.runtime.clone()))
+                    .is_some_and(|control| lag > *control * 1.25)
+        });
+        run.environment_limited = host_limited || lag_limited;
+        if lag_limited && !host_limited {
+            run.warnings.push(
+                "run is environment-limited by scheduling lag relative to the three-backend control; exclude it from policy claims unless analyzed as a saturation study".into(),
+            );
+        }
+    }
 }
 
 fn measurement_duration_seconds(requests: &[RequestInput]) -> Option<f64> {
@@ -487,6 +657,135 @@ fn latency_analysis(requests: &[RequestInput]) -> LatencyAnalysis {
         p999_us: percentile(&values, 0.999),
         max_us: values.last().copied(),
     }
+}
+
+fn slo_analysis(requests: &[RequestInput], target_ms: Option<u64>) -> SloAnalysis {
+    let Some(target_ms) = target_ms else {
+        return SloAnalysis::default();
+    };
+    let target_us = target_ms.saturating_mul(1_000);
+    let successful_within_slo = requests
+        .iter()
+        .filter(|request| request.http_success && request.latency_us <= target_us)
+        .count();
+    let miss_count = requests.len().saturating_sub(successful_within_slo);
+    let attainment_rate =
+        (!requests.is_empty()).then_some(successful_within_slo as f64 / requests.len() as f64);
+    SloAnalysis {
+        target_ms: Some(target_ms),
+        eligible_requests: Some(requests.len()),
+        successful_within_slo: Some(successful_within_slo),
+        miss_count: Some(miss_count),
+        attainment_rate,
+        miss_rate: attainment_rate.map(|rate| 1.0 - rate),
+    }
+}
+
+fn scheduling_lag_analysis(requests: &[RequestInput]) -> SchedulingLagAnalysis {
+    let mut values = requests
+        .iter()
+        .map(|request| {
+            request
+                .started_offset_us
+                .saturating_sub(request.scheduled_offset_us)
+        })
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return SchedulingLagAnalysis::default();
+    }
+    values.sort_unstable();
+    SchedulingLagAnalysis {
+        samples: values.len(),
+        mean_us: Some(values.iter().map(|value| *value as f64).sum::<f64>() / values.len() as f64),
+        p50_us: percentile(&values, 0.50),
+        p95_us: percentile(&values, 0.95),
+        p99_us: percentile(&values, 0.99),
+        max_us: values.last().copied(),
+    }
+}
+
+fn workload_analysis(
+    requests: &[RequestInput],
+    slo_target_ms: Option<u64>,
+) -> Vec<WorkloadAnalysis> {
+    let mut grouped = BTreeMap::<String, Vec<RequestInput>>::new();
+    for request in requests {
+        grouped
+            .entry(request.workload_id.clone())
+            .or_default()
+            .push(request.clone());
+    }
+    grouped
+        .into_iter()
+        .map(|(workload_id, requests)| {
+            let total_requests = requests.len();
+            let successful_requests = requests
+                .iter()
+                .filter(|request| request.http_success)
+                .count();
+            let transport_errors = requests
+                .iter()
+                .filter(|request| !request.transport_success)
+                .count();
+            let http_errors = requests
+                .iter()
+                .filter(|request| request.transport_success && !request.http_success)
+                .count();
+            WorkloadAnalysis {
+                workload_id,
+                total_requests,
+                successful_requests,
+                transport_errors,
+                http_errors,
+                error_rate: (total_requests > 0)
+                    .then_some((transport_errors + http_errors) as f64 / total_requests as f64),
+                latency: latency_analysis(&requests),
+                slo: slo_analysis(&requests, slo_target_ms),
+                scheduling_lag: scheduling_lag_analysis(&requests),
+            }
+        })
+        .collect()
+}
+
+fn window_analysis(
+    requests: &[RequestInput],
+    windows: &[AnalysisWindowInput],
+) -> Vec<WindowAnalysis> {
+    windows
+        .iter()
+        .map(|window| {
+            let selected = requests
+                .iter()
+                .filter(|request| {
+                    let started_ms = request.started_offset_us / 1_000;
+                    started_ms >= window.start_ms && started_ms < window.end_ms
+                })
+                .collect::<Vec<_>>();
+            let mut backend_requests = BTreeMap::new();
+            for request in &selected {
+                if let Some(backend_id) = &request.backend_id {
+                    *backend_requests.entry(backend_id.clone()).or_insert(0) += 1;
+                }
+            }
+            WindowAnalysis {
+                window_id: window.id.clone(),
+                start_ms: window.start_ms,
+                end_ms: window.end_ms,
+                total_requests: selected.len(),
+                successful_requests: selected
+                    .iter()
+                    .filter(|request| request.http_success)
+                    .count(),
+                latency: latency_analysis(
+                    &selected
+                        .iter()
+                        .map(|request| (*request).clone())
+                        .collect::<Vec<_>>(),
+                ),
+                backend_requests,
+            }
+        })
+        .collect()
 }
 
 fn percentile(sorted: &[u64], probability: f64) -> Option<f64> {
@@ -671,16 +970,28 @@ fn resource_analysis(run_directory: &Path) -> Result<ResourceAnalysis, AnalysisE
         return Ok(ResourceAnalysis::default());
     }
     let samples: Vec<ResourceInput> = read_json_lines(&path)?;
+    let host_metrics_warning = samples.iter().find_map(|sample| {
+        sample
+            .error
+            .as_deref()
+            .and_then(|error| error.strip_prefix("host: "))
+            .map(str::to_string)
+    });
     let valid = samples
         .iter()
         .filter(|sample| {
             sample.cpu_time_us.is_some()
                 || sample.resident_memory_bytes.is_some()
                 || sample.virtual_memory_bytes.is_some()
+                || sample.host_cpu_percent.is_some()
+                || sample.host_memory_bytes.is_some()
         })
         .collect::<Vec<_>>();
     if valid.is_empty() {
-        return Ok(ResourceAnalysis::default());
+        return Ok(ResourceAnalysis {
+            host_metrics_warning,
+            ..ResourceAnalysis::default()
+        });
     }
     let cpu_samples = valid
         .iter()
@@ -706,6 +1017,15 @@ fn resource_analysis(run_directory: &Path) -> Result<ResourceAnalysis, AnalysisE
         .iter()
         .filter_map(|sample| sample.virtual_memory_bytes)
         .collect::<Vec<_>>();
+    let host_cpu = valid
+        .iter()
+        .filter_map(|sample| sample.host_cpu_percent)
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    let host_memory = valid
+        .iter()
+        .filter_map(|sample| sample.host_memory_bytes)
+        .collect::<Vec<_>>();
     Ok(ResourceAnalysis {
         samples: valid.len(),
         average_cpu_percent,
@@ -714,6 +1034,12 @@ fn resource_analysis(run_directory: &Path) -> Result<ResourceAnalysis, AnalysisE
         peak_resident_memory_bytes: resident.iter().max().copied(),
         mean_virtual_memory_bytes: mean_u64(&virtual_memory),
         peak_virtual_memory_bytes: virtual_memory.iter().max().copied(),
+        host_samples: host_cpu.len().max(host_memory.len()),
+        host_average_cpu_percent: (!host_cpu.is_empty())
+            .then_some(host_cpu.iter().sum::<f64>() / host_cpu.len() as f64),
+        host_mean_memory_bytes: mean_u64(&host_memory),
+        host_peak_memory_bytes: host_memory.iter().max().copied(),
+        host_metrics_warning,
     })
 }
 
@@ -887,6 +1213,13 @@ fn aggregate_runs(runs: &[RunAnalysis]) -> Vec<GroupAnalysis> {
             latency_p50_us: summarize_values(runs.iter().filter_map(|run| run.latency.p50_us)),
             latency_p95_us: summarize_values(runs.iter().filter_map(|run| run.latency.p95_us)),
             latency_p99_us: summarize_values(runs.iter().filter_map(|run| run.latency.p99_us)),
+            slo_attainment_rate: summarize_values(
+                runs.iter().filter_map(|run| run.slo.attainment_rate),
+            ),
+            slo_miss_rate: summarize_values(runs.iter().filter_map(|run| run.slo.miss_rate)),
+            scheduling_lag_p95_us: summarize_values(
+                runs.iter().filter_map(|run| run.scheduling_lag.p95_us),
+            ),
             fairness_jain_index: summarize_values(
                 runs.iter().filter_map(|run| run.fairness.jain_index),
             ),
@@ -908,6 +1241,59 @@ fn aggregate_runs(runs: &[RunAnalysis]) -> Vec<GroupAnalysis> {
                     .iter()
                     .filter_map(|recovery| recovery.time_to_stable_success_ms)
             })),
+        })
+        .collect()
+}
+
+fn aggregate_windows(runs: &[RunAnalysis]) -> Vec<GroupWindowAnalysis> {
+    let mut grouped = BTreeMap::<(GroupKey, String, u64, u64), Vec<&WindowAnalysis>>::new();
+    for run in runs.iter().filter(|run| run.included_in_aggregates) {
+        for window in &run.windows {
+            grouped
+                .entry((
+                    GroupKey {
+                        scenario: run.scenario.clone(),
+                        algorithm: run.algorithm.clone(),
+                        runtime: run.runtime.clone(),
+                    },
+                    window.window_id.clone(),
+                    window.start_ms,
+                    window.end_ms,
+                ))
+                .or_default()
+                .push(window);
+        }
+    }
+    grouped
+        .into_iter()
+        .map(|((key, window_id, start_ms, end_ms), windows)| {
+            let mut backend_requests = BTreeMap::new();
+            for window in &windows {
+                for (backend_id, requests) in &window.backend_requests {
+                    *backend_requests.entry(backend_id.clone()).or_insert(0) += requests;
+                }
+            }
+            GroupWindowAnalysis {
+                scenario: key.scenario,
+                algorithm: key.algorithm,
+                runtime: key.runtime,
+                window_id,
+                start_ms,
+                end_ms,
+                runs: windows.len(),
+                total_requests: summarize_values(
+                    windows.iter().map(|window| window.total_requests as f64),
+                ),
+                successful_requests: summarize_values(
+                    windows
+                        .iter()
+                        .map(|window| window.successful_requests as f64),
+                ),
+                latency_p95_us: summarize_values(
+                    windows.iter().filter_map(|window| window.latency.p95_us),
+                ),
+                backend_requests,
+            }
         })
         .collect()
 }
@@ -974,6 +1360,9 @@ fn write_outputs(
     write_recovery_csv(report)?;
     write_resource_csv(report)?;
     write_source_csv(report)?;
+    write_workload_csv(report)?;
+    write_window_csv(report)?;
+    write_group_window_csv(report)?;
     write_plots(report)?;
     Ok(())
 }
@@ -1015,6 +1404,22 @@ fn write_run_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
             "mean_virtual_memory_bytes",
             "peak_virtual_memory_bytes",
             "recovery_time_ms",
+            "slo_target_ms",
+            "slo_successful_within_slo",
+            "slo_attainment_rate",
+            "slo_miss_count",
+            "slo_miss_rate",
+            "scheduling_lag_samples",
+            "scheduling_lag_mean_us",
+            "scheduling_lag_p50_us",
+            "scheduling_lag_p95_us",
+            "scheduling_lag_p99_us",
+            "scheduling_lag_max_us",
+            "environment_limited",
+            "host_samples",
+            "host_average_cpu_percent",
+            "host_mean_memory_bytes",
+            "host_peak_memory_bytes",
         ],
     )?;
     for run in &report.runs {
@@ -1064,6 +1469,37 @@ fn write_run_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
                 optional_number(recovery),
+                run.slo
+                    .target_ms
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                run.slo
+                    .successful_within_slo
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                optional_number(run.slo.attainment_rate),
+                run.slo
+                    .miss_count
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                optional_number(run.slo.miss_rate),
+                run.scheduling_lag.samples.to_string(),
+                optional_number(run.scheduling_lag.mean_us),
+                optional_number(run.scheduling_lag.p50_us),
+                optional_number(run.scheduling_lag.p95_us),
+                optional_number(run.scheduling_lag.p99_us),
+                run.scheduling_lag
+                    .max_us
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                run.environment_limited.to_string(),
+                run.resource_usage.host_samples.to_string(),
+                optional_number(run.resource_usage.host_average_cpu_percent),
+                optional_number(run.resource_usage.host_mean_memory_bytes),
+                run.resource_usage
+                    .host_peak_memory_bytes
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
             ],
         )?;
     }
@@ -1093,6 +1529,9 @@ fn write_group_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
             "average_cpu_percent_mean",
             "peak_resident_memory_mean_bytes",
             "recovery_time_mean_ms",
+            "slo_attainment_rate_mean",
+            "slo_miss_rate_mean",
+            "scheduling_lag_p95_mean_us",
         ],
     )?;
     for group in &report.groups {
@@ -1116,6 +1555,9 @@ fn write_group_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
                 optional_number(group.average_cpu_percent.mean),
                 optional_number(group.peak_resident_memory_bytes.mean),
                 optional_number(group.recovery_time_ms.mean),
+                optional_number(group.slo_attainment_rate.mean),
+                optional_number(group.slo_miss_rate.mean),
+                optional_number(group.scheduling_lag_p95_us.mean),
             ],
         )?;
     }
@@ -1158,6 +1600,17 @@ fn write_group_statistics_csv(report: &AnalysisReport) -> Result<(), AnalysisErr
             ("latency_p50", "microseconds", &group.latency_p50_us),
             ("latency_p95", "microseconds", &group.latency_p95_us),
             ("latency_p99", "microseconds", &group.latency_p99_us),
+            (
+                "slo_attainment_rate",
+                "fraction",
+                &group.slo_attainment_rate,
+            ),
+            ("slo_miss_rate", "fraction", &group.slo_miss_rate),
+            (
+                "scheduling_lag_p95",
+                "microseconds",
+                &group.scheduling_lag_p95_us,
+            ),
             ("fairness_jain_index", "index", &group.fairness_jain_index),
             (
                 "weighted_fairness_jain_index",
@@ -1305,6 +1758,10 @@ fn write_resource_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
             "peak_resident_memory_bytes",
             "mean_virtual_memory_bytes",
             "peak_virtual_memory_bytes",
+            "host_samples",
+            "host_average_cpu_percent",
+            "host_mean_memory_bytes",
+            "host_peak_memory_bytes",
         ],
     )?;
     for run in &report.runs {
@@ -1329,6 +1786,13 @@ fn write_resource_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
                     .peak_virtual_memory_bytes
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
+                usage.host_samples.to_string(),
+                optional_number(usage.host_average_cpu_percent),
+                optional_number(usage.host_mean_memory_bytes),
+                usage
+                    .host_peak_memory_bytes
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
             ],
         )?;
     }
@@ -1346,6 +1810,150 @@ fn write_source_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
                 source.relative_path.clone(),
                 source.bytes.to_string(),
                 source.sha256.clone(),
+            ],
+        )?;
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+fn write_workload_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
+    let mut writer = csv_writer(report.analysis_directory.join("workload-summary.csv"))?;
+    csv_row(
+        &mut writer,
+        &[
+            "run_id",
+            "scenario",
+            "algorithm",
+            "runtime",
+            "workload_id",
+            "total_requests",
+            "successful_requests",
+            "transport_errors",
+            "http_errors",
+            "error_rate",
+            "latency_p50_us",
+            "latency_p95_us",
+            "slo_target_ms",
+            "slo_successful_within_slo",
+            "slo_attainment_rate",
+            "scheduling_lag_p95_us",
+        ],
+    )?;
+    for run in &report.runs {
+        for workload in &run.workloads {
+            csv_row(
+                &mut writer,
+                &[
+                    run.run_id.clone(),
+                    run.scenario.clone(),
+                    run.algorithm.clone(),
+                    run.runtime.clone(),
+                    workload.workload_id.clone(),
+                    workload.total_requests.to_string(),
+                    workload.successful_requests.to_string(),
+                    workload.transport_errors.to_string(),
+                    workload.http_errors.to_string(),
+                    optional_number(workload.error_rate),
+                    optional_number(workload.latency.p50_us),
+                    optional_number(workload.latency.p95_us),
+                    workload
+                        .slo
+                        .target_ms
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                    workload
+                        .slo
+                        .successful_within_slo
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                    optional_number(workload.slo.attainment_rate),
+                    optional_number(workload.scheduling_lag.p95_us),
+                ],
+            )?;
+        }
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+fn write_window_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
+    let mut writer = csv_writer(report.analysis_directory.join("window-summary.csv"))?;
+    csv_row(
+        &mut writer,
+        &[
+            "run_id",
+            "scenario",
+            "algorithm",
+            "runtime",
+            "window_id",
+            "start_ms",
+            "end_ms",
+            "total_requests",
+            "successful_requests",
+            "latency_p50_us",
+            "latency_p95_us",
+            "backend_requests_json",
+        ],
+    )?;
+    for run in &report.runs {
+        for window in &run.windows {
+            csv_row(
+                &mut writer,
+                &[
+                    run.run_id.clone(),
+                    run.scenario.clone(),
+                    run.algorithm.clone(),
+                    run.runtime.clone(),
+                    window.window_id.clone(),
+                    window.start_ms.to_string(),
+                    window.end_ms.to_string(),
+                    window.total_requests.to_string(),
+                    window.successful_requests.to_string(),
+                    optional_number(window.latency.p50_us),
+                    optional_number(window.latency.p95_us),
+                    serde_json::to_string(&window.backend_requests)?,
+                ],
+            )?;
+        }
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+fn write_group_window_csv(report: &AnalysisReport) -> Result<(), AnalysisError> {
+    let mut writer = csv_writer(report.analysis_directory.join("group-window-summary.csv"))?;
+    csv_row(
+        &mut writer,
+        &[
+            "scenario",
+            "algorithm",
+            "runtime",
+            "window_id",
+            "start_ms",
+            "end_ms",
+            "runs",
+            "total_requests_mean",
+            "successful_requests_mean",
+            "latency_p95_mean_us",
+            "backend_requests_json",
+        ],
+    )?;
+    for window in &report.group_windows {
+        csv_row(
+            &mut writer,
+            &[
+                window.scenario.clone(),
+                window.algorithm.clone(),
+                window.runtime.clone(),
+                window.window_id.clone(),
+                window.start_ms.to_string(),
+                window.end_ms.to_string(),
+                window.runs.to_string(),
+                optional_number(window.total_requests.mean),
+                optional_number(window.successful_requests.mean),
+                optional_number(window.latency_p95_us.mean),
+                serde_json::to_string(&window.backend_requests)?,
             ],
         )?;
     }

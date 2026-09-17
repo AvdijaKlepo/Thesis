@@ -147,6 +147,10 @@ fn test_load_balancer_names_and_backends() {
     let adaptive = AdaptiveBalancing::new(vec![n1, n2]);
     assert_eq!(adaptive.name(), "adaptive_balancing");
     assert_eq!(adaptive.backends().len(), 2);
+
+    let adaptive_v2 = AdaptiveBalancingV2::new(adaptive.backends().to_vec());
+    assert_eq!(adaptive_v2.name(), "adaptive_balancing_v2");
+    assert_eq!(adaptive_v2.backends().len(), 2);
 }
 
 #[test]
@@ -226,6 +230,36 @@ fn empty_load_balancers_return_none() {
     assert!(LeastConnections::new(Vec::new()).next(false).is_none());
     assert!(LeastResponseTime::new(Vec::new()).next(false).is_none());
     assert!(AdaptiveBalancing::new(Vec::new()).next(false).is_none());
+    assert!(AdaptiveBalancingV2::new(Vec::new()).next(false).is_none());
+}
+
+#[test]
+fn adaptive_v2_diagnostics_expose_settings_and_backend_state() {
+    let first = test_node("first", 8081, 2);
+    let second = test_node("second", 8082, 1);
+    let settings = AdaptiveV2Settings {
+        deadline_ms: 100,
+        ..AdaptiveV2Settings::default()
+    };
+    let lb = AdaptiveBalancingV2::with_settings(vec![first.clone(), second.clone()], settings);
+
+    let selected = lb.next(false).unwrap();
+    lb.release(&selected, feedback(20, true));
+    let snapshot = lb.adaptive_diagnostics().expect("adaptive diagnostics");
+    assert_eq!(snapshot.algorithm, "adaptive_balancing_v2");
+    assert_eq!(snapshot.settings, Some(settings));
+    assert_eq!(snapshot.total_selections, 1);
+    assert_eq!(snapshot.backends.len(), 2);
+    let first = snapshot
+        .backends
+        .iter()
+        .find(|backend| backend.backend_id == selected.id)
+        .unwrap();
+    assert_eq!(first.observations, 1);
+    assert_eq!(first.selections, 1);
+    assert_eq!(first.in_flight, 0);
+    assert!(first.latency_utility_ewma.is_some());
+    assert!(first.score.is_finite());
 }
 
 #[test]
@@ -297,6 +331,218 @@ fn adaptive_balancing_treats_transport_failure_as_deadline_miss() {
     }
 
     assert_eq!(lb.next(false).unwrap().id, "healthy");
+}
+
+#[test]
+fn adaptive_v2_settings_validate_and_have_stable_defaults() {
+    let settings = AdaptiveV2Settings::default();
+    assert_eq!(settings.deadline_ms, 200);
+    assert_eq!(settings.ewma_alpha, 0.2);
+    assert_eq!(settings.slo_weight, 0.7);
+    assert_eq!(settings.probe_interval_per_backend, 32);
+    assert_eq!(settings.in_flight_penalty, 0.05);
+    assert!(settings.validate().is_ok());
+
+    for invalid in [
+        AdaptiveV2Settings {
+            deadline_ms: 0,
+            ..settings
+        },
+        AdaptiveV2Settings {
+            ewma_alpha: 0.0,
+            ..settings
+        },
+        AdaptiveV2Settings {
+            ewma_alpha: 1.1,
+            ..settings
+        },
+        AdaptiveV2Settings {
+            slo_weight: -0.1,
+            ..settings
+        },
+        AdaptiveV2Settings {
+            slo_weight: 1.1,
+            ..settings
+        },
+        AdaptiveV2Settings {
+            probe_interval_per_backend: 0,
+            ..settings
+        },
+        AdaptiveV2Settings {
+            in_flight_penalty: -0.1,
+            ..settings
+        },
+    ] {
+        assert!(invalid.validate().is_err());
+    }
+}
+
+#[test]
+fn adaptive_v2_tracks_bounded_reward_and_continuous_latency_utility() {
+    let backend = test_node("backend", 8081, 1);
+    let settings = AdaptiveV2Settings {
+        deadline_ms: 100,
+        ..Default::default()
+    };
+    let lb = AdaptiveBalancingV2::with_settings(vec![backend.clone()], settings);
+
+    lb.release(&backend, feedback(50, true));
+    {
+        let state = lb.state.lock().unwrap();
+        let backend_state = &state.backends[0];
+        assert_eq!(backend_state.deadline_success_probability, 1.0);
+        assert!((backend_state.latency_utility - (2.0 / 3.0)).abs() < 1.0e-12);
+    }
+
+    lb.release(&backend, feedback(u64::MAX, false));
+    let state = lb.state.lock().unwrap();
+    let backend_state = &state.backends[0];
+    assert!((0.0..=1.0).contains(&backend_state.deadline_success_probability));
+    assert!((0.0..=1.0).contains(&backend_state.latency_utility));
+    assert!(backend_state.deadline_success_probability.is_finite());
+    assert!(backend_state.latency_utility.is_finite());
+
+    let state = AdaptiveV2BackendState {
+        observations: 4,
+        selections: 2,
+        in_flight: 2,
+        deadline_success_probability: 0.8,
+        latency_utility: 0.4,
+        last_selected: 3,
+    };
+    let score = state.score(
+        AdaptiveV2Settings {
+            slo_weight: 0.7,
+            in_flight_penalty: 0.2,
+            ..settings
+        },
+        4,
+        10,
+        8,
+    );
+    // .7*.8 + .3*.4 + (7/8)*.1 - .2*(2/4) = .6675
+    assert!((score - 0.6675).abs() < 1.0e-12);
+}
+
+#[test]
+fn adaptive_v2_ranks_successful_backends_by_latency_and_reacts_to_reversal() {
+    let fast = test_node("fast", 8081, 1);
+    let slow = test_node("slow", 8082, 1);
+    let lb = AdaptiveBalancingV2::with_settings(
+        vec![fast.clone(), slow.clone()],
+        AdaptiveV2Settings {
+            probe_interval_per_backend: 100,
+            ..Default::default()
+        },
+    );
+
+    for _ in 0..8 {
+        lb.release(&fast, feedback(40, true));
+        lb.release(&slow, feedback(180, true));
+    }
+    assert_eq!(lb.next(false).unwrap().id, "fast");
+
+    for _ in 0..24 {
+        lb.release(&fast, feedback(180, true));
+        lb.release(&slow, feedback(40, true));
+    }
+    assert_eq!(lb.next(false).unwrap().id, "slow");
+}
+
+#[test]
+fn adaptive_v2_normalizes_in_flight_penalty_by_capacity() {
+    let small = test_node("small", 8081, 1);
+    let large = test_node("large", 8082, 4);
+    let lb = AdaptiveBalancingV2::with_settings(
+        vec![small, large],
+        AdaptiveV2Settings {
+            in_flight_penalty: 1.0,
+            ..Default::default()
+        },
+    );
+    let mut state = lb.state.lock().unwrap();
+    for backend in &mut state.backends {
+        backend.observations = 1;
+        backend.deadline_success_probability = 1.0;
+        backend.latency_utility = 1.0;
+    }
+    state.backends[0].in_flight = 2;
+    state.backends[1].in_flight = 2;
+    state.total_selections = 10;
+    drop(state);
+
+    assert_eq!(lb.next(false).unwrap().id, "large");
+}
+
+#[test]
+fn adaptive_v2_revisits_stale_backend_within_probe_bound() {
+    let good = test_node("good", 8081, 1);
+    let poor = test_node("poor", 8082, 1);
+    let lb = AdaptiveBalancingV2::with_settings(
+        vec![good.clone(), poor.clone()],
+        AdaptiveV2Settings {
+            probe_interval_per_backend: 2,
+            ..Default::default()
+        },
+    );
+    // Establish both observations, then let the poor backend age while the
+    // good backend is selected repeatedly.
+    lb.release(&good, feedback(20, true));
+    lb.release(&poor, feedback(500, false));
+    let mut seen = Vec::new();
+    for _ in 0..5 {
+        let selected = lb.next(false).unwrap();
+        seen.push(selected.id.clone());
+        lb.release(&selected, feedback(20, true));
+        if selected.id == "poor" {
+            break;
+        }
+    }
+    assert!(seen.iter().position(|id| id == "poor").is_some());
+}
+
+#[test]
+fn adaptive_v2_revisits_a_backend_after_health_recovery() {
+    let good = test_node("good", 8081, 1);
+    let recovered = test_node("recovered", 8082, 1);
+    let lb = AdaptiveBalancingV2::with_settings(
+        vec![good.clone(), recovered.clone()],
+        AdaptiveV2Settings {
+            probe_interval_per_backend: 2,
+            ..Default::default()
+        },
+    );
+    lb.release(&good, feedback(20, true));
+    lb.release(&recovered, feedback(400, false));
+    recovered.healthy.store(false, Ordering::Relaxed);
+    for _ in 0..4 {
+        let selected = lb.next(false).unwrap();
+        assert_eq!(selected.id, "good");
+        lb.release(&selected, feedback(20, true));
+    }
+    recovered.healthy.store(true, Ordering::Relaxed);
+    assert_eq!(lb.next(false).unwrap().id, "recovered");
+}
+
+#[test]
+fn adaptive_v2_cold_start_and_retry_exclusion_cover_all_backends() {
+    let backends: Vec<_> = (0..6)
+        .map(|index| test_node(&index.to_string(), 8100 + index, 1))
+        .collect();
+    let lb = AdaptiveBalancingV2::new(backends);
+    let mut selected = std::collections::HashSet::new();
+    for _ in 0..6 {
+        let node = lb.next(false).unwrap();
+        selected.insert(node.id.clone());
+        lb.release(&node, feedback(20, true));
+    }
+    assert_eq!(selected.len(), 6);
+
+    let first = lb.next(false).unwrap();
+    let retry = lb
+        .next_excluding(false, &[first.id.as_str()])
+        .expect("a different backend should be available for retry");
+    assert_ne!(retry.id, first.id);
 }
 
 #[test]

@@ -125,3 +125,44 @@ fn excluding_every_eligible_backend_is_distinct_from_an_unhealthy_pool() {
         Err(BackendSelectionError::NoHealthyBackends)
     ));
 }
+
+#[test]
+fn adaptive_v2_settings_survive_algorithm_and_membership_rebuilds() {
+    let settings = AdaptiveV2Settings {
+        deadline_ms: 125,
+        ewma_alpha: 0.35,
+        slo_weight: 0.6,
+        probe_interval_per_backend: 7,
+        in_flight_penalty: 0.2,
+    };
+    let pool = BackendPool::new_with_fail_open_and_adaptive_v2_settings(
+        AlgorithmKind::AdaptiveBalancingV2,
+        vec![backend("1", 8081, 1), backend("2", 8082, 2)],
+        false,
+        settings,
+    )
+    .unwrap();
+    assert_eq!(pool.adaptive_v2_settings(), settings);
+
+    pool.change_algorithm(AlgorithmKind::RoundRobin);
+    pool.add_backend(backend("3", 8083, 1)).unwrap();
+    pool.update_backend(backend("2", 9082, 3)).unwrap();
+    pool.remove_backend("1").unwrap();
+    assert_eq!(pool.adaptive_v2_settings(), settings);
+
+    pool.change_algorithm(AlgorithmKind::AdaptiveBalancingV2);
+    assert_eq!(pool.load_balancer().load().name(), "adaptive_balancing_v2");
+}
+
+#[test]
+fn adaptive_v2_settings_reject_invalid_values() {
+    let pool = BackendPool::new(AlgorithmKind::RoundRobin, vec![backend("1", 8081, 1)]).unwrap();
+    let result = pool.set_adaptive_v2_settings(AdaptiveV2Settings {
+        deadline_ms: 0,
+        ..Default::default()
+    });
+    assert!(matches!(
+        result,
+        Err(BackendPoolError::InvalidAdaptiveV2Settings(_))
+    ));
+}

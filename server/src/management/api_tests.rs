@@ -1,4 +1,5 @@
 use super::*;
+use crate::algorithms::balancers::AdaptiveV2Settings;
 use crate::{Backend, backend::BackendPool, service::RouteMatcher};
 
 fn registry() -> ServiceRegistry {
@@ -40,6 +41,10 @@ fn patches_routes_without_replacing_the_backend_pool() {
             }]),
             algorithm: Some(AlgorithmKind::LeastConnections),
             fail_open: Some(true),
+            adaptive_v2: Some(AdaptiveV2Settings {
+                deadline_ms: 125,
+                ..Default::default()
+            }),
             root: None,
         },
     )
@@ -49,6 +54,7 @@ fn patches_routes_without_replacing_the_backend_pool() {
     assert_eq!(updated.routes[0].path_prefix, "/new");
     assert_eq!(after.algorithm(), AlgorithmKind::LeastConnections);
     assert!(after.fail_open());
+    assert_eq!(after.adaptive_v2_settings().deadline_ms, 125);
     assert_eq!(after.backends().len(), 1);
 }
 

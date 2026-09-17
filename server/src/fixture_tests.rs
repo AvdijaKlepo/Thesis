@@ -16,6 +16,25 @@ fn exchange(config: FixtureConfig, request: &[u8]) -> Vec<u8> {
     client.join().unwrap()
 }
 
+fn exchange_shared(config: FixtureConfig, request: &[u8]) -> (Vec<u8>, FixtureConfig) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let shared = Arc::new(RwLock::new(config));
+    let handler_config = Arc::clone(&shared);
+    let client_request = request.to_vec();
+    let client = thread::spawn(move || {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream.write_all(&client_request).unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        response
+    });
+    let (stream, _) = listener.accept().unwrap();
+    handle_connection_shared(stream, &handler_config, &FixtureState::default()).unwrap();
+    let response = client.join().unwrap();
+    (response, shared.read().unwrap().clone())
+}
+
 #[test]
 fn arguments_override_configuration_and_are_validated() {
     let mut config = FixtureConfig::default();
@@ -85,6 +104,26 @@ fn seeded_latency_and_failures_are_repeatable() {
     assert!(first.iter().all(|(latency, _)| (10..=60).contains(latency)));
     assert!(first.iter().any(|(_, failed)| *failed));
     assert!(first.iter().any(|(_, failed)| !failed));
+
+    let mut changed = config.clone();
+    changed
+        .apply_patch(&FixtureConfigPatch {
+            latency_ms: Some(100),
+            ..FixtureConfigPatch::default()
+        })
+        .unwrap();
+    let changed_first = (1..=20)
+        .map(|id| (changed.sampled_latency_ms(id), changed.should_fail(id)))
+        .collect::<Vec<_>>();
+    let changed_second = (1..=20)
+        .map(|id| (changed.sampled_latency_ms(id), changed.should_fail(id)))
+        .collect::<Vec<_>>();
+    assert_eq!(changed_first, changed_second);
+    assert!(
+        changed_first
+            .iter()
+            .all(|(latency, _)| (100..=150).contains(latency))
+    );
 }
 
 #[test]
@@ -118,4 +157,57 @@ fn status_failures_are_visible_and_machine_readable() {
     let response = exchange(config, b"GET /work HTTP/1.1\r\nConnection: close\r\n\r\n");
     assert!(response.starts_with(b"HTTP/1.1 500 Internal Server Error"));
     assert!(String::from_utf8_lossy(&response).contains("configured_error"));
+}
+
+#[test]
+fn control_endpoint_applies_only_mutable_fixture_settings() {
+    let config = FixtureConfig {
+        id: "mutable".into(),
+        capacity: 4,
+        latency_ms: 10,
+        processing_ms: 5,
+        seed: 77,
+        ..FixtureConfig::default()
+    };
+    let body = br#"{"latency_ms":90,"latency_jitter_ms":12,"processing_ms":3,"error_rate":0.25,"error_mode":"disconnect"}"#;
+    let request = format!(
+        "POST /control HTTP/1.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        String::from_utf8_lossy(body)
+    );
+    let (response, updated) = exchange_shared(config.clone(), request.as_bytes());
+    assert!(response.starts_with(b"HTTP/1.1 200 OK"));
+    assert_eq!(updated.id, config.id);
+    assert_eq!(updated.listen_address, config.listen_address);
+    assert_eq!(updated.capacity, config.capacity);
+    assert_eq!(updated.seed, config.seed);
+    assert_eq!(updated.latency_ms, 90);
+    assert_eq!(updated.latency_jitter_ms, 12);
+    assert_eq!(updated.processing_ms, 3);
+    assert_eq!(updated.error_rate, 0.25);
+    assert_eq!(updated.error_mode, ErrorMode::Disconnect);
+}
+
+#[test]
+fn control_endpoint_rejects_immutable_and_invalid_patches() {
+    let config = FixtureConfig::default();
+    let body = br#"{"capacity":99}"#;
+    let request = format!(
+        "POST /control HTTP/1.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        String::from_utf8_lossy(body)
+    );
+    let (response, updated) = exchange_shared(config.clone(), request.as_bytes());
+    assert!(response.starts_with(b"HTTP/1.1 400 Bad Request"));
+    assert_eq!(updated.capacity, config.capacity);
+
+    let body = br#"{"error_rate":2.0}"#;
+    let request = format!(
+        "POST /control HTTP/1.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        String::from_utf8_lossy(body)
+    );
+    let (response, updated) = exchange_shared(config.clone(), request.as_bytes());
+    assert!(response.starts_with(b"HTTP/1.1 400 Bad Request"));
+    assert_eq!(updated.error_rate, config.error_rate);
 }

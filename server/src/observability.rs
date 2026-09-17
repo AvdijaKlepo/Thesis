@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::{
     algorithms::AlgorithmKind,
+    algorithms::balancers::AdaptiveDiagnosticSnapshot,
     backend::registry::BackendMetricsReport,
     proxy::RuntimeMode,
     service::{RouteMatcher, ServiceRegistry, ServiceTarget},
@@ -161,6 +162,7 @@ impl Observability {
                     algorithm: Some(pool.algorithm()),
                     fail_open: Some(pool.fail_open()),
                     backends: pool.metrics_summary(),
+                    adaptive_diagnostics: pool.load_balancer().load().adaptive_diagnostics(),
                 },
                 ServiceTarget::Static { .. } => ServiceMetricsSnapshot {
                     service_id: service.id.clone(),
@@ -169,6 +171,7 @@ impl Observability {
                     algorithm: None,
                     fail_open: None,
                     backends: Vec::new(),
+                    adaptive_diagnostics: None,
                 },
             })
             .collect();
@@ -423,6 +426,7 @@ pub struct ServiceMetricsSnapshot {
     pub algorithm: Option<AlgorithmKind>,
     pub fail_open: Option<bool>,
     pub backends: Vec<BackendMetricsReport>,
+    pub adaptive_diagnostics: Option<AdaptiveDiagnosticSnapshot>,
 }
 #[cfg(test)]
 #[path = "observability_tests.rs"]

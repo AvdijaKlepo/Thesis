@@ -1,0 +1,31 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../../web"
+thread_pool_size = 16
+runtime = "async"
+default_service = "fixture"
+
+[health]
+enabled = true
+interval_ms = 1000
+timeout_ms = 250
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[observability]
+log_requests = false
+
+[[services]]
+id = "fixture"
+kind = "proxy"
+algorithm = "round_robin"
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "card3-fast-1", address = "127.0.0.1:6101", weight = 1 },
+    { id = "card3-variable-1", address = "127.0.0.1:6102", weight = 1 },
+    { id = "card3-slow-1", address = "127.0.0.1:6103", weight = 1 },
+]
+

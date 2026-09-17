@@ -9,7 +9,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{algorithms::AlgorithmKind, config::AppConfig, proxy::RuntimeMode};
+use crate::{
+    algorithms::AlgorithmKind, config::AppConfig, fixture::FixtureConfigPatch, proxy::RuntimeMode,
+};
 
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 
@@ -64,8 +66,20 @@ pub struct ExperimentManifest {
     pub runtimes: Vec<RuntimeMode>,
     pub server: ServerLaunch,
     pub scenarios: Vec<ScenarioManifest>,
+    #[serde(default)]
+    pub paired_workload_seeds: bool,
+    #[serde(default)]
+    pub execution_order: ExecutionOrder,
     #[serde(skip)]
     pub manifest_path: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionOrder {
+    #[default]
+    Declared,
+    BlockedRandomized,
 }
 
 impl ExperimentManifest {
@@ -295,7 +309,15 @@ pub struct ScenarioManifest {
     #[serde(default)]
     pub failures: Vec<FailureEvent>,
     #[serde(default)]
+    pub fixture_changes: Vec<FixtureChange>,
+    #[serde(default)]
     pub collect: Vec<CollectionEndpoint>,
+    #[serde(default)]
+    pub slo_target_ms: Option<u64>,
+    #[serde(default)]
+    pub workload_seed_group: Option<String>,
+    #[serde(default)]
+    pub analysis_windows: Vec<AnalysisWindow>,
 }
 
 impl ScenarioManifest {
@@ -313,6 +335,24 @@ impl ScenarioManifest {
                 self.id
             )));
         }
+        if self.slo_target_ms == Some(0) {
+            return Err(ManifestError::Invalid(format!(
+                "scenario '{}' slo_target_ms must be greater than zero",
+                self.id
+            )));
+        }
+        if let Some(group) = &self.workload_seed_group {
+            validate_id("workload seed group", group)?;
+        }
+        ensure_unique(
+            self.analysis_windows
+                .iter()
+                .map(|window| window.id.as_str()),
+            "analysis window id",
+        )?;
+        for window in &self.analysis_windows {
+            window.validate(&self.id)?;
+        }
         ensure_unique(
             self.workloads.iter().map(|value| value.id.as_str()),
             "workload id",
@@ -320,6 +360,10 @@ impl ScenarioManifest {
         ensure_unique(
             self.failures.iter().map(|value| value.id.as_str()),
             "failure id",
+        )?;
+        ensure_unique(
+            self.fixture_changes.iter().map(|value| value.id.as_str()),
+            "fixture change id",
         )?;
         ensure_unique(
             self.collect.iter().map(|value| value.id.as_str()),
@@ -334,8 +378,32 @@ impl ScenarioManifest {
         for failure in &self.failures {
             failure.validate()?;
         }
+        for change in &self.fixture_changes {
+            change.validate()?;
+        }
         for endpoint in &self.collect {
             endpoint.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnalysisWindow {
+    pub id: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+impl AnalysisWindow {
+    fn validate(&self, scenario_id: &str) -> Result<(), ManifestError> {
+        validate_id("analysis window", &self.id)?;
+        if self.end_ms <= self.start_ms {
+            return Err(ManifestError::Invalid(format!(
+                "analysis window '{}' in scenario '{}' must have end_ms greater than start_ms",
+                self.id, scenario_id
+            )));
         }
         Ok(())
     }
@@ -516,6 +584,31 @@ pub struct FailureEvent {
     pub at_ms: u64,
     pub target_backend_id: Option<String>,
     pub action: ExternalCommand,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FixtureChange {
+    pub id: String,
+    pub at_ms: u64,
+    pub address: String,
+    pub patch: FixtureConfigPatch,
+    #[serde(default)]
+    pub allow_failure: bool,
+}
+
+impl FixtureChange {
+    pub fn socket(&self) -> Result<SocketAddr, ManifestError> {
+        parse_address("fixture change address", &self.address)
+    }
+
+    fn validate(&self) -> Result<(), ManifestError> {
+        validate_id("fixture change", &self.id)?;
+        self.socket()?;
+        self.patch.validate().map_err(|error| {
+            ManifestError::Invalid(format!("fixture change '{}': {error}", self.id))
+        })
+    }
 }
 
 impl FailureEvent {

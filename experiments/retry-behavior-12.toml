@@ -1,0 +1,381 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/retry-behavior-12.toml
+schema_version = 1
+name = "retry-behavior-12"
+seed = 20260928
+repetitions = 5
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
+runtimes = ["async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "retry-get"
+description = "Idempotent GET retries across larger healthy, flaky, and failing cohorts."
+server_config = "../server/config/fixtures/failure-12.toml"
+workload_seed_group = "retry-behavior-12"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "failure-12", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "failure-healthy-1", "failure-healthy-2", "failure-healthy-3", "failure-healthy-4", "failure-flaky-1", "failure-flaky-2", "failure-flaky-3", "failure-flaky-4", "failure-always-1", "failure-always-2", "failure-always-3", "failure-always-4"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "failure-12", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "retry-reads"
+requests = 1200
+concurrency = 32
+method = "GET"
+path = "/experiment"
+requests_per_second = 120.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 10000
+
+[[scenarios.collect]]
+id = "failure-healthy-1-config"
+address = "127.0.0.1:6601"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-1-metrics"
+address = "127.0.0.1:6601"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-2-config"
+address = "127.0.0.1:6602"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-2-metrics"
+address = "127.0.0.1:6602"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-3-config"
+address = "127.0.0.1:6603"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-3-metrics"
+address = "127.0.0.1:6603"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-4-config"
+address = "127.0.0.1:6604"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-4-metrics"
+address = "127.0.0.1:6604"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-1-config"
+address = "127.0.0.1:6605"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-1-metrics"
+address = "127.0.0.1:6605"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-2-config"
+address = "127.0.0.1:6606"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-2-metrics"
+address = "127.0.0.1:6606"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-3-config"
+address = "127.0.0.1:6607"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-3-metrics"
+address = "127.0.0.1:6607"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-4-config"
+address = "127.0.0.1:6608"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-4-metrics"
+address = "127.0.0.1:6608"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-1-config"
+address = "127.0.0.1:6609"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-1-metrics"
+address = "127.0.0.1:6609"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-2-config"
+address = "127.0.0.1:6610"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-2-metrics"
+address = "127.0.0.1:6610"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-3-config"
+address = "127.0.0.1:6611"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-3-metrics"
+address = "127.0.0.1:6611"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-4-config"
+address = "127.0.0.1:6612"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-4-metrics"
+address = "127.0.0.1:6612"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios]]
+id = "retry-post"
+description = "Non-idempotent POST behavior across larger healthy, flaky, and failing cohorts."
+server_config = "../server/config/fixtures/failure-12.toml"
+workload_seed_group = "retry-behavior-12"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "failure-12", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "failure-healthy-1", "failure-healthy-2", "failure-healthy-3", "failure-healthy-4", "failure-flaky-1", "failure-flaky-2", "failure-flaky-3", "failure-flaky-4", "failure-always-1", "failure-always-2", "failure-always-3", "failure-always-4"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "failure-12", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "retry-writes"
+requests = 1200
+concurrency = 32
+method = "POST"
+path = "/experiment"
+requests_per_second = 120.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 10000
+
+[[scenarios.collect]]
+id = "failure-healthy-1-config"
+address = "127.0.0.1:6601"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-1-metrics"
+address = "127.0.0.1:6601"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-2-config"
+address = "127.0.0.1:6602"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-2-metrics"
+address = "127.0.0.1:6602"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-3-config"
+address = "127.0.0.1:6603"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-3-metrics"
+address = "127.0.0.1:6603"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-4-config"
+address = "127.0.0.1:6604"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-4-metrics"
+address = "127.0.0.1:6604"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-1-config"
+address = "127.0.0.1:6605"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-1-metrics"
+address = "127.0.0.1:6605"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-2-config"
+address = "127.0.0.1:6606"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-2-metrics"
+address = "127.0.0.1:6606"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-3-config"
+address = "127.0.0.1:6607"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-3-metrics"
+address = "127.0.0.1:6607"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-4-config"
+address = "127.0.0.1:6608"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-4-metrics"
+address = "127.0.0.1:6608"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-1-config"
+address = "127.0.0.1:6609"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-1-metrics"
+address = "127.0.0.1:6609"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-2-config"
+address = "127.0.0.1:6610"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-2-metrics"
+address = "127.0.0.1:6610"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-3-config"
+address = "127.0.0.1:6611"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-3-metrics"
+address = "127.0.0.1:6611"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-4-config"
+address = "127.0.0.1:6612"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-4-metrics"
+address = "127.0.0.1:6612"
+path = "/metrics"
+phases = ["before", "after"]
+

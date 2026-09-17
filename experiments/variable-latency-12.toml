@@ -1,0 +1,200 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/variable-latency-12.toml
+schema_version = 1
+name = "variable-latency-12"
+seed = 20260925
+repetitions = 5
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
+runtimes = ["async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "variable-latency-12"
+description = "Four replicas of each fast, seeded-variable, and slow latency class."
+server_config = "../server/config/fixtures/variable-latency-12.toml"
+workload_seed_group = "variable-latency-12"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "variable-latency-12", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "latency12-fast-1", "latency12-fast-2", "latency12-fast-3", "latency12-fast-4", "latency12-variable-1", "latency12-variable-2", "latency12-variable-3", "latency12-variable-4", "latency12-slow-1", "latency12-slow-2", "latency12-slow-3", "latency12-slow-4"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "variable-latency-12", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 1800
+concurrency = 96
+method = "GET"
+path = "/experiment"
+requests_per_second = 180.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 10000
+
+[[scenarios.collect]]
+id = "latency12-fast-1-config"
+address = "127.0.0.1:6701"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-1-metrics"
+address = "127.0.0.1:6701"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-2-config"
+address = "127.0.0.1:6702"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-2-metrics"
+address = "127.0.0.1:6702"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-3-config"
+address = "127.0.0.1:6703"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-3-metrics"
+address = "127.0.0.1:6703"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-4-config"
+address = "127.0.0.1:6704"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-fast-4-metrics"
+address = "127.0.0.1:6704"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-1-config"
+address = "127.0.0.1:6705"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-1-metrics"
+address = "127.0.0.1:6705"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-2-config"
+address = "127.0.0.1:6706"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-2-metrics"
+address = "127.0.0.1:6706"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-3-config"
+address = "127.0.0.1:6707"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-3-metrics"
+address = "127.0.0.1:6707"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-4-config"
+address = "127.0.0.1:6708"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-variable-4-metrics"
+address = "127.0.0.1:6708"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-1-config"
+address = "127.0.0.1:6709"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-1-metrics"
+address = "127.0.0.1:6709"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-2-config"
+address = "127.0.0.1:6710"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-2-metrics"
+address = "127.0.0.1:6710"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-3-config"
+address = "127.0.0.1:6711"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-3-metrics"
+address = "127.0.0.1:6711"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-4-config"
+address = "127.0.0.1:6712"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency12-slow-4-metrics"
+address = "127.0.0.1:6712"
+path = "/metrics"
+phases = ["before", "after"]
+

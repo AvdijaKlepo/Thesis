@@ -23,7 +23,8 @@ use crate::{
 
 use super::{
     manifest::{
-        CollectionEndpoint, CollectionPhase, ExperimentManifest, ExternalCommand, ScenarioManifest,
+        CollectionEndpoint, CollectionPhase, ExecutionOrder, ExperimentManifest, ExternalCommand,
+        ScenarioManifest,
     },
     resources::start_resource_monitor,
     workload::{RequestLog, RequestMeasurement, stable_hash, unix_timestamp_ms},
@@ -67,7 +68,7 @@ pub struct RunnerOptions {
     pub output_directory: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PlannedRun {
     pub ordinal: usize,
     pub total: usize,
@@ -165,26 +166,52 @@ impl ScenarioRunner {
         let total = scenarios.len() * algorithms.len() * runtimes.len() * repetitions;
         let mut runs = Vec::with_capacity(total);
 
-        for scenario in scenarios {
-            for algorithm in &algorithms {
-                for runtime in &runtimes {
-                    for repetition in 1..=repetitions {
-                        let ordinal = runs.len() + 1;
-                        runs.push(PlannedRun {
-                            ordinal,
-                            total,
-                            scenario: scenario.id.clone(),
-                            algorithm: *algorithm,
-                            runtime: *runtime,
-                            repetition,
-                            seed: derive_run_seed(
-                                self.manifest.seed,
-                                &scenario.id,
-                                *algorithm,
-                                *runtime,
-                                repetition,
-                            ),
-                        });
+        match self.manifest.execution_order {
+            ExecutionOrder::Declared => {
+                for scenario in scenarios {
+                    for algorithm in &algorithms {
+                        for runtime in &runtimes {
+                            for repetition in 1..=repetitions {
+                                push_planned_run(
+                                    &mut runs,
+                                    total,
+                                    &self.manifest,
+                                    scenario,
+                                    *algorithm,
+                                    *runtime,
+                                    repetition,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            ExecutionOrder::BlockedRandomized => {
+                for scenario in scenarios {
+                    for runtime in &runtimes {
+                        for repetition in 1..=repetitions {
+                            let mut block = algorithms.clone();
+                            block.sort_by_key(|algorithm| {
+                                deterministic_order_key(
+                                    self.manifest.seed,
+                                    &scenario.id,
+                                    *runtime,
+                                    repetition,
+                                    *algorithm,
+                                )
+                            });
+                            for algorithm in block {
+                                push_planned_run(
+                                    &mut runs,
+                                    total,
+                                    &self.manifest,
+                                    scenario,
+                                    algorithm,
+                                    *runtime,
+                                    repetition,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -336,6 +363,8 @@ impl ScenarioRunner {
             repetition: planned.repetition,
             experiment_seed: self.manifest.seed,
             run_seed: planned.seed,
+            paired_workload_seeds: self.manifest.paired_workload_seeds,
+            execution_order: self.manifest.execution_order,
             runner_version: env!("CARGO_PKG_VERSION"),
             server_version: self
                 .manifest
@@ -446,6 +475,10 @@ impl ScenarioRunner {
                 planned.algorithm,
             )?;
             write_json(run_directory.join("metrics-before.json"), &metrics_before)?;
+            write_json(
+                run_directory.join("adaptive-diagnostics-before.json"),
+                &adaptive_diagnostics(&metrics_before),
+            )?;
             collect_endpoints(
                 scenario,
                 CollectionPhase::Before,
@@ -477,6 +510,12 @@ impl ScenarioRunner {
                 Arc::clone(&events),
                 workload_origin,
             );
+            let fixture_change_handles = start_fixture_changes(
+                scenario,
+                workload_origin,
+                Arc::clone(&events),
+                self.manifest.server.request_timeout_ms,
+            );
             let default_timeout = Duration::from_millis(self.manifest.server.request_timeout_ms);
             let workload_handles = scenario
                 .workloads
@@ -485,7 +524,17 @@ impl ScenarioRunner {
                 .map(|workload| {
                     let events = Arc::clone(&events);
                     let workload_id = workload.id.clone();
-                    let workload_seed = planned.seed ^ stable_hash(&workload.id);
+                    let workload_seed = if self.manifest.paired_workload_seeds {
+                        derive_workload_seed(
+                            self.manifest.seed,
+                            scenario.workload_seed_group.as_deref().unwrap_or("default"),
+                            planned.runtime,
+                            planned.repetition,
+                            &workload.id,
+                        )
+                    } else {
+                        planned.seed ^ stable_hash(&workload.id)
+                    };
                     let request_log = Arc::clone(&request_log);
                     thread::spawn(move || {
                         let measurements = super::workload::run_workload(
@@ -530,6 +579,13 @@ impl ScenarioRunner {
                     Err(_) => failure_errors.push("failure scheduler panicked".into()),
                 }
             }
+            for handle in fixture_change_handles {
+                match handle.join() {
+                    Ok(Some(error)) => failure_errors.push(error),
+                    Ok(None) => {}
+                    Err(_) => failure_errors.push("fixture change scheduler panicked".into()),
+                }
+            }
             let resource_error = resource_monitor.stop().err();
             events.record(
                 "workloads_completed",
@@ -550,6 +606,10 @@ impl ScenarioRunner {
                 .metrics()
                 .map_err(|error| RunnerError::new(error.to_string()))?;
             write_json(run_directory.join("metrics-after.json"), &metrics_after)?;
+            write_json(
+                run_directory.join("adaptive-diagnostics-after.json"),
+                &adaptive_diagnostics(&metrics_after),
+            )?;
             collect_endpoints(
                 scenario,
                 CollectionPhase::After,
@@ -624,6 +684,8 @@ impl ScenarioRunner {
             repetition: planned.repetition,
             experiment_seed: self.manifest.seed,
             run_seed: planned.seed,
+            paired_workload_seeds: self.manifest.paired_workload_seeds,
+            execution_order: self.manifest.execution_order,
             runner_version: env!("CARGO_PKG_VERSION"),
             server_version: self
                 .manifest
@@ -702,6 +764,64 @@ fn derive_run_seed(
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D049BB133111EB);
     value ^ (value >> 31)
+}
+
+fn derive_workload_seed(
+    base: u64,
+    workload_seed_group: &str,
+    runtime: RuntimeMode,
+    repetition: usize,
+    workload_id: &str,
+) -> u64 {
+    let dimensions = format!(
+        "{workload_seed_group}\0{}\0{repetition}\0{workload_id}",
+        runtime.as_str()
+    );
+    let mut value = base ^ stable_hash(&dimensions);
+    value = value.wrapping_add(0x9E3779B97F4A7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D049BB133111EB);
+    value ^ (value >> 31)
+}
+
+fn deterministic_order_key(
+    seed: u64,
+    scenario: &str,
+    runtime: RuntimeMode,
+    repetition: usize,
+    algorithm: AlgorithmKind,
+) -> u64 {
+    let dimensions = format!(
+        "{seed}\0{scenario}\0{}\0{repetition}\0{}",
+        runtime.as_str(),
+        algorithm.as_str()
+    );
+    let mut value = stable_hash(&dimensions).wrapping_add(seed);
+    value = value.wrapping_add(0x9E3779B97F4A7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D049BB133111EB);
+    value ^ (value >> 31)
+}
+
+fn push_planned_run(
+    runs: &mut Vec<PlannedRun>,
+    total: usize,
+    manifest: &ExperimentManifest,
+    scenario: &ScenarioManifest,
+    algorithm: AlgorithmKind,
+    runtime: RuntimeMode,
+    repetition: usize,
+) {
+    let ordinal = runs.len() + 1;
+    runs.push(PlannedRun {
+        ordinal,
+        total,
+        scenario: scenario.id.clone(),
+        algorithm,
+        runtime,
+        repetition,
+        seed: derive_run_seed(manifest.seed, &scenario.id, algorithm, runtime, repetition),
+    });
 }
 
 fn copy_manifest_artifacts(
@@ -871,6 +991,208 @@ fn start_failures(
                 )
                 .err()
                 .map(|error| error.to_string())
+            })
+        })
+        .collect()
+}
+
+fn start_fixture_changes(
+    scenario: &ScenarioManifest,
+    origin: Instant,
+    events: Arc<EventLog>,
+    default_timeout_ms: u64,
+) -> Vec<thread::JoinHandle<Option<String>>> {
+    scenario
+        .fixture_changes
+        .iter()
+        .cloned()
+        .map(|change| {
+            let events = Arc::clone(&events);
+            thread::spawn(move || {
+                sleep_until(origin + Duration::from_millis(change.at_ms));
+                let address = match change.socket() {
+                    Ok(address) => address,
+                    Err(error) => {
+                        let message = error.to_string();
+                        events.record(
+                            "fixture_change_started",
+                            &change.id,
+                            Some(false),
+                            json!({"address": &change.address, "error": &message}),
+                            Some(origin),
+                        );
+                        events.record(
+                            "fixture_change_completed",
+                            &change.id,
+                            Some(false),
+                            json!({"address": &change.address, "error": &message}),
+                            Some(origin),
+                        );
+                        return (!change.allow_failure).then_some(message);
+                    }
+                };
+                let body = match serde_json::to_vec(&change.patch) {
+                    Ok(body) => body,
+                    Err(error) => {
+                        let message = error.to_string();
+                        events.record(
+                            "fixture_change_started",
+                            &change.id,
+                            Some(false),
+                            json!({"address": &change.address, "error": &message}),
+                            Some(origin),
+                        );
+                        events.record(
+                            "fixture_change_completed",
+                            &change.id,
+                            Some(false),
+                            json!({"address": &change.address, "error": &message}),
+                            Some(origin),
+                        );
+                        return (!change.allow_failure).then_some(message);
+                    }
+                };
+                let headers = BTreeMap::new();
+                let before = match send_http(
+                    address,
+                    &HttpRequest {
+                        method: "GET",
+                        path: "/config",
+                        host: &address.to_string(),
+                        headers: &headers,
+                        body: &[],
+                        timeout: Duration::from_millis(default_timeout_ms),
+                        max_response_bytes: 8 * 1024 * 1024,
+                    },
+                ) {
+                    Ok(response) if (200..300).contains(&response.status_code) => {
+                        serde_json::from_slice::<Value>(&response.body)
+                            .unwrap_or_else(|_| Value::String(response.body_text()))
+                    }
+                    Ok(response) => {
+                        let message = format!(
+                            "fixture '{}' configuration returned HTTP {} before change",
+                            change.id, response.status_code
+                        );
+                        events.record(
+                            "fixture_change_started",
+                            &change.id,
+                            Some(false),
+                            json!({
+                                "address": &change.address,
+                                "patch": &change.patch,
+                                "error": &message,
+                            }),
+                            Some(origin),
+                        );
+                        events.record(
+                            "fixture_change_completed",
+                            &change.id,
+                            Some(false),
+                            json!({"address": &change.address, "error": &message}),
+                            Some(origin),
+                        );
+                        return (!change.allow_failure).then_some(message);
+                    }
+                    Err(error) => {
+                        let message = format!(
+                            "fixture '{}' configuration could not be read before change: {error}",
+                            change.id
+                        );
+                        events.record(
+                            "fixture_change_started",
+                            &change.id,
+                            Some(false),
+                            json!({
+                                "address": &change.address,
+                                "patch": &change.patch,
+                                "error": &message,
+                            }),
+                            Some(origin),
+                        );
+                        events.record(
+                            "fixture_change_completed",
+                            &change.id,
+                            Some(false),
+                            json!({"address": &change.address, "error": &message}),
+                            Some(origin),
+                        );
+                        return (!change.allow_failure).then_some(message);
+                    }
+                };
+                events.record(
+                    "fixture_change_started",
+                    &change.id,
+                    None,
+                    json!({
+                        "address": &change.address,
+                        "patch": &change.patch,
+                        "effective_before": &before,
+                    }),
+                    Some(origin),
+                );
+                let started = Instant::now();
+                let mut headers = BTreeMap::new();
+                headers.insert("Content-Type".into(), "application/json".into());
+                let response = send_http(
+                    address,
+                    &HttpRequest {
+                        method: "POST",
+                        path: "/control",
+                        host: &address.to_string(),
+                        headers: &headers,
+                        body: &body,
+                        timeout: Duration::from_millis(default_timeout_ms),
+                        max_response_bytes: 8 * 1024 * 1024,
+                    },
+                );
+                let (success, details, error) = match response {
+                    Ok(response) => {
+                        let success = (200..300).contains(&response.status_code);
+                        let effective_after = serde_json::from_slice::<Value>(&response.body)
+                            .unwrap_or_else(|_| Value::String(response.body_text()));
+                        let details = json!({
+                            "address": address,
+                            "patch": &change.patch,
+                            "allow_failure": change.allow_failure,
+                            "effective_before": &before,
+                            "status_code": response.status_code,
+                            "headers": response.headers,
+                            "effective_after": &effective_after,
+                            "body": &effective_after,
+                            "bytes_received": response.bytes_received,
+                            "truncated": response.truncated,
+                            "duration_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                        });
+                        let error = (!success && !change.allow_failure).then(|| {
+                            format!(
+                                "fixture change '{}' returned HTTP {}",
+                                change.id, response.status_code
+                            )
+                        });
+                        (success, details, error)
+                    }
+                    Err(error) => (
+                        false,
+                        json!({
+                            "address": address,
+                            "patch": &change.patch,
+                            "allow_failure": change.allow_failure,
+                            "duration_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                            "error": error.to_string(),
+                        }),
+                        (!change.allow_failure)
+                            .then_some(format!("fixture change '{}' failed: {error}", change.id)),
+                    ),
+                };
+                events.record(
+                    "fixture_change_completed",
+                    &change.id,
+                    Some(success),
+                    details,
+                    Some(origin),
+                );
+                error
             })
         })
         .collect()
@@ -1257,6 +1579,29 @@ fn verify_algorithm(
     }
 }
 
+fn adaptive_diagnostics(metrics: &Value) -> Value {
+    let snapshots = metrics
+        .get("services")
+        .and_then(Value::as_array)
+        .map(|services| {
+            services
+                .iter()
+                .filter_map(|service| {
+                    let diagnostics = service.get("adaptive_diagnostics")?;
+                    if diagnostics.is_null() {
+                        return None;
+                    }
+                    Some(json!({
+                        "service_id": service.get("service_id"),
+                        "diagnostics": diagnostics,
+                    }))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Value::Array(snapshots)
+}
+
 #[derive(Serialize)]
 struct RunMetadata<'a> {
     schema_version: u32,
@@ -1272,6 +1617,8 @@ struct RunMetadata<'a> {
     repetition: usize,
     experiment_seed: u64,
     run_seed: u64,
+    paired_workload_seeds: bool,
+    execution_order: ExecutionOrder,
     runner_version: &'static str,
     server_version: &'a str,
     source_revision: Option<&'a str>,
@@ -1293,6 +1640,8 @@ fn raw_artifacts() -> Vec<&'static str> {
         "resource-samples.jsonl",
         "metrics-before.json",
         "metrics-after.json",
+        "adaptive-diagnostics-before.json",
+        "adaptive-diagnostics-after.json",
         "collection-*.body",
         "collection-*.json",
     ]

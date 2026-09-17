@@ -1,0 +1,382 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/adaptive-cardinality.toml
+schema_version = 1
+name = "adaptive-cardinality"
+seed = 20260922
+repetitions = 10
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
+runtimes = ["async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "cardinality-3"
+description = "Controlled variable-latency comparison with three backends and twelve total fixture workers."
+server_config = "../server/config/fixtures/cardinality-3.toml"
+workload_seed_group = "adaptive-cardinality"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "cardinality-3", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "card3-fast-1", "card3-variable-1", "card3-slow-1"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "cardinality-3", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 1800
+concurrency = 96
+method = "GET"
+path = "/experiment"
+requests_per_second = 180.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 10000
+
+[[scenarios.collect]]
+id = "card3-fast-1-config"
+address = "127.0.0.1:6101"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card3-fast-1-metrics"
+address = "127.0.0.1:6101"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card3-variable-1-config"
+address = "127.0.0.1:6102"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card3-variable-1-metrics"
+address = "127.0.0.1:6102"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card3-slow-1-config"
+address = "127.0.0.1:6103"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card3-slow-1-metrics"
+address = "127.0.0.1:6103"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios]]
+id = "cardinality-6"
+description = "Controlled variable-latency comparison with six backends and twelve total fixture workers."
+server_config = "../server/config/fixtures/cardinality-6.toml"
+workload_seed_group = "adaptive-cardinality"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "cardinality-6", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "card6-fast-1", "card6-fast-2", "card6-variable-1", "card6-variable-2", "card6-slow-1", "card6-slow-2"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "cardinality-6", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 1800
+concurrency = 96
+method = "GET"
+path = "/experiment"
+requests_per_second = 180.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 10000
+
+[[scenarios.collect]]
+id = "card6-fast-1-config"
+address = "127.0.0.1:6201"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-fast-1-metrics"
+address = "127.0.0.1:6201"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-fast-2-config"
+address = "127.0.0.1:6202"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-fast-2-metrics"
+address = "127.0.0.1:6202"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-variable-1-config"
+address = "127.0.0.1:6203"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-variable-1-metrics"
+address = "127.0.0.1:6203"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-variable-2-config"
+address = "127.0.0.1:6204"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-variable-2-metrics"
+address = "127.0.0.1:6204"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-slow-1-config"
+address = "127.0.0.1:6205"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-slow-1-metrics"
+address = "127.0.0.1:6205"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-slow-2-config"
+address = "127.0.0.1:6206"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card6-slow-2-metrics"
+address = "127.0.0.1:6206"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios]]
+id = "cardinality-12"
+description = "Controlled variable-latency comparison with twelve backends and twelve total fixture workers."
+server_config = "../server/config/fixtures/cardinality-12.toml"
+workload_seed_group = "adaptive-cardinality"
+slo_target_ms = 200
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "cardinality-12", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "card12-fast-1", "card12-fast-2", "card12-fast-3", "card12-fast-4", "card12-variable-1", "card12-variable-2", "card12-variable-3", "card12-variable-4", "card12-slow-1", "card12-slow-2", "card12-slow-3", "card12-slow-4"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "cardinality-12", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 1800
+concurrency = 96
+method = "GET"
+path = "/experiment"
+requests_per_second = 180.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 10000
+
+[[scenarios.collect]]
+id = "card12-fast-1-config"
+address = "127.0.0.1:6301"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-1-metrics"
+address = "127.0.0.1:6301"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-2-config"
+address = "127.0.0.1:6302"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-2-metrics"
+address = "127.0.0.1:6302"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-3-config"
+address = "127.0.0.1:6303"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-3-metrics"
+address = "127.0.0.1:6303"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-4-config"
+address = "127.0.0.1:6304"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-fast-4-metrics"
+address = "127.0.0.1:6304"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-1-config"
+address = "127.0.0.1:6305"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-1-metrics"
+address = "127.0.0.1:6305"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-2-config"
+address = "127.0.0.1:6306"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-2-metrics"
+address = "127.0.0.1:6306"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-3-config"
+address = "127.0.0.1:6307"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-3-metrics"
+address = "127.0.0.1:6307"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-4-config"
+address = "127.0.0.1:6308"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-variable-4-metrics"
+address = "127.0.0.1:6308"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-1-config"
+address = "127.0.0.1:6309"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-1-metrics"
+address = "127.0.0.1:6309"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-2-config"
+address = "127.0.0.1:6310"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-2-metrics"
+address = "127.0.0.1:6310"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-3-config"
+address = "127.0.0.1:6311"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-3-metrics"
+address = "127.0.0.1:6311"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-4-config"
+address = "127.0.0.1:6312"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "card12-slow-4-metrics"
+address = "127.0.0.1:6312"
+path = "/metrics"
+phases = ["before", "after"]
+

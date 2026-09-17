@@ -1,0 +1,40 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../../web"
+thread_pool_size = 16
+runtime = "async"
+default_service = "fixture"
+
+[health]
+enabled = true
+interval_ms = 1000
+timeout_ms = 250
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[observability]
+log_requests = false
+
+[[services]]
+id = "fixture"
+kind = "proxy"
+algorithm = "round_robin"
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "card12-fast-1", address = "127.0.0.1:6301", weight = 1 },
+    { id = "card12-fast-2", address = "127.0.0.1:6302", weight = 1 },
+    { id = "card12-fast-3", address = "127.0.0.1:6303", weight = 1 },
+    { id = "card12-fast-4", address = "127.0.0.1:6304", weight = 1 },
+    { id = "card12-variable-1", address = "127.0.0.1:6305", weight = 1 },
+    { id = "card12-variable-2", address = "127.0.0.1:6306", weight = 1 },
+    { id = "card12-variable-3", address = "127.0.0.1:6307", weight = 1 },
+    { id = "card12-variable-4", address = "127.0.0.1:6308", weight = 1 },
+    { id = "card12-slow-1", address = "127.0.0.1:6309", weight = 1 },
+    { id = "card12-slow-2", address = "127.0.0.1:6310", weight = 1 },
+    { id = "card12-slow-3", address = "127.0.0.1:6311", weight = 1 },
+    { id = "card12-slow-4", address = "127.0.0.1:6312", weight = 1 },
+]
+

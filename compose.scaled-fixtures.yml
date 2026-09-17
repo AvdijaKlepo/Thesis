@@ -1,0 +1,851 @@
+name: webserver-scaled-fixtures
+
+x-fixture: &fixture
+  build:
+    context: ./server
+    dockerfile: Dockerfile.fixture
+  image: webserver-backend-fixture:local
+  restart: "no"
+  environment: &fixture-environment
+    FIXTURE_LISTEN: "0.0.0.0:8080"
+    FIXTURE_ERROR_RATE: "0.0"
+    FIXTURE_ERROR_MODE: status
+    FIXTURE_LATENCY_JITTER_MS: "0"
+    FIXTURE_SEED: "1"
+
+x-fast-environment: &fast-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "5"
+  FIXTURE_LATENCY_JITTER_MS: "0"
+  FIXTURE_PROCESSING_MS: "20"
+
+x-variable-environment: &variable-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "10"
+  FIXTURE_LATENCY_JITTER_MS: "140"
+  FIXTURE_PROCESSING_MS: "20"
+
+x-slow-environment: &slow-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "120"
+  FIXTURE_LATENCY_JITTER_MS: "0"
+  FIXTURE_PROCESSING_MS: "20"
+
+x-equal-environment: &equal-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "10"
+  FIXTURE_LATENCY_JITTER_MS: "0"
+  FIXTURE_PROCESSING_MS: "40"
+
+x-healthy-environment: &healthy-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "10"
+  FIXTURE_LATENCY_JITTER_MS: "0"
+  FIXTURE_PROCESSING_MS: "30"
+
+x-flaky-environment: &flaky-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "10"
+  FIXTURE_LATENCY_JITTER_MS: "40"
+  FIXTURE_PROCESSING_MS: "30"
+  FIXTURE_ERROR_RATE: "0.35"
+  FIXTURE_ERROR_MODE: disconnect
+
+x-always-environment: &always-environment
+  <<: *fixture-environment
+  FIXTURE_LATENCY_MS: "10"
+  FIXTURE_LATENCY_JITTER_MS: "0"
+  FIXTURE_PROCESSING_MS: "30"
+  FIXTURE_ERROR_RATE: "1.0"
+  FIXTURE_ERROR_MODE: disconnect
+
+services:
+  card3-fast-1:
+    <<: *fixture
+    profiles: [cardinality-3]
+    ports: ["127.0.0.1:6101:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card3-fast-1
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_SEED: "106101"
+
+  card3-variable-1:
+    <<: *fixture
+    profiles: [cardinality-3]
+    ports: ["127.0.0.1:6102:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card3-variable-1
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_SEED: "106102"
+
+  card3-slow-1:
+    <<: *fixture
+    profiles: [cardinality-3]
+    ports: ["127.0.0.1:6103:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card3-slow-1
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_SEED: "106103"
+
+  card6-fast-1:
+    <<: *fixture
+    profiles: [cardinality-6]
+    ports: ["127.0.0.1:6201:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card6-fast-1
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106201"
+
+  card6-fast-2:
+    <<: *fixture
+    profiles: [cardinality-6]
+    ports: ["127.0.0.1:6202:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card6-fast-2
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106202"
+
+  card6-variable-1:
+    <<: *fixture
+    profiles: [cardinality-6]
+    ports: ["127.0.0.1:6203:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card6-variable-1
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106203"
+
+  card6-variable-2:
+    <<: *fixture
+    profiles: [cardinality-6]
+    ports: ["127.0.0.1:6204:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card6-variable-2
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106204"
+
+  card6-slow-1:
+    <<: *fixture
+    profiles: [cardinality-6]
+    ports: ["127.0.0.1:6205:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card6-slow-1
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106205"
+
+  card6-slow-2:
+    <<: *fixture
+    profiles: [cardinality-6]
+    ports: ["127.0.0.1:6206:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card6-slow-2
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106206"
+
+  card12-fast-1:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6301:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card12-fast-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106301"
+
+  card12-fast-2:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6302:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card12-fast-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106302"
+
+  card12-fast-3:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6303:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card12-fast-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106303"
+
+  card12-fast-4:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6304:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: card12-fast-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106304"
+
+  card12-variable-1:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6305:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card12-variable-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106305"
+
+  card12-variable-2:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6306:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card12-variable-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106306"
+
+  card12-variable-3:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6307:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card12-variable-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106307"
+
+  card12-variable-4:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6308:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: card12-variable-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106308"
+
+  card12-slow-1:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6309:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card12-slow-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106309"
+
+  card12-slow-2:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6310:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card12-slow-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106310"
+
+  card12-slow-3:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6311:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card12-slow-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106311"
+
+  card12-slow-4:
+    <<: *fixture
+    profiles: [cardinality-12]
+    ports: ["127.0.0.1:6312:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: card12-slow-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106312"
+
+  equal12-1:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6401:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106401"
+
+  equal12-2:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6402:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106402"
+
+  equal12-3:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6403:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106403"
+
+  equal12-4:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6404:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106404"
+
+  equal12-5:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6405:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-5
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106405"
+
+  equal12-6:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6406:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-6
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106406"
+
+  equal12-7:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6407:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-7
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106407"
+
+  equal12-8:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6408:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-8
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106408"
+
+  equal12-9:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6409:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-9
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106409"
+
+  equal12-10:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6410:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-10
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106410"
+
+  equal12-11:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6411:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-11
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106411"
+
+  equal12-12:
+    <<: *fixture
+    profiles: [equal-capacity-12]
+    ports: ["127.0.0.1:6412:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal12-12
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106412"
+
+  failure-healthy-1:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6601:8080"]
+    environment:
+      <<: *healthy-environment
+      FIXTURE_ID: failure-healthy-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106601"
+
+  failure-healthy-2:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6602:8080"]
+    environment:
+      <<: *healthy-environment
+      FIXTURE_ID: failure-healthy-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106602"
+
+  failure-healthy-3:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6603:8080"]
+    environment:
+      <<: *healthy-environment
+      FIXTURE_ID: failure-healthy-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106603"
+
+  failure-healthy-4:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6604:8080"]
+    environment:
+      <<: *healthy-environment
+      FIXTURE_ID: failure-healthy-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106604"
+
+  failure-flaky-1:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6605:8080"]
+    environment:
+      <<: *flaky-environment
+      FIXTURE_ID: failure-flaky-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106605"
+
+  failure-flaky-2:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6606:8080"]
+    environment:
+      <<: *flaky-environment
+      FIXTURE_ID: failure-flaky-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106606"
+
+  failure-flaky-3:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6607:8080"]
+    environment:
+      <<: *flaky-environment
+      FIXTURE_ID: failure-flaky-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106607"
+
+  failure-flaky-4:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6608:8080"]
+    environment:
+      <<: *flaky-environment
+      FIXTURE_ID: failure-flaky-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106608"
+
+  failure-always-1:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6609:8080"]
+    environment:
+      <<: *always-environment
+      FIXTURE_ID: failure-always-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106609"
+
+  failure-always-2:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6610:8080"]
+    environment:
+      <<: *always-environment
+      FIXTURE_ID: failure-always-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106610"
+
+  failure-always-3:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6611:8080"]
+    environment:
+      <<: *always-environment
+      FIXTURE_ID: failure-always-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106611"
+
+  failure-always-4:
+    <<: *fixture
+    profiles: [failure-12]
+    ports: ["127.0.0.1:6612:8080"]
+    environment:
+      <<: *always-environment
+      FIXTURE_ID: failure-always-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106612"
+
+  latency12-fast-1:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6701:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: latency12-fast-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106701"
+
+  latency12-fast-2:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6702:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: latency12-fast-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106702"
+
+  latency12-fast-3:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6703:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: latency12-fast-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106703"
+
+  latency12-fast-4:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6704:8080"]
+    environment:
+      <<: *fast-environment
+      FIXTURE_ID: latency12-fast-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106704"
+
+  latency12-variable-1:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6705:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: latency12-variable-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106705"
+
+  latency12-variable-2:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6706:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: latency12-variable-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106706"
+
+  latency12-variable-3:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6707:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: latency12-variable-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106707"
+
+  latency12-variable-4:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6708:8080"]
+    environment:
+      <<: *variable-environment
+      FIXTURE_ID: latency12-variable-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106708"
+
+  latency12-slow-1:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6709:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: latency12-slow-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106709"
+
+  latency12-slow-2:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6710:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: latency12-slow-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106710"
+
+  latency12-slow-3:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6711:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: latency12-slow-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106711"
+
+  latency12-slow-4:
+    <<: *fixture
+    profiles: [variable-latency-12]
+    ports: ["127.0.0.1:6712:8080"]
+    environment:
+      <<: *slow-environment
+      FIXTURE_ID: latency12-slow-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106712"
+
+  heterogeneous13-small-1:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6501:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-small-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106501"
+
+  heterogeneous13-medium-1:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6502:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-medium-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106502"
+
+  heterogeneous13-medium-2:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6503:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-medium-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106503"
+
+  heterogeneous13-medium-3:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6504:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-medium-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106504"
+
+  heterogeneous13-medium-4:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6505:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-medium-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106505"
+
+  heterogeneous13-large-1:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6506:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-1
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106506"
+
+  heterogeneous13-large-2:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6507:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-2
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106507"
+
+  heterogeneous13-large-3:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6508:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-3
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106508"
+
+  heterogeneous13-large-4:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6509:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-4
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106509"
+
+  heterogeneous13-large-5:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6510:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-5
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106510"
+
+  heterogeneous13-large-6:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6511:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-6
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106511"
+
+  heterogeneous13-large-7:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6512:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-7
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106512"
+
+  heterogeneous13-large-8:
+    <<: *fixture
+    profiles: [heterogeneous-replicas-13]
+    ports: ["127.0.0.1:6513:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: heterogeneous13-large-8
+      FIXTURE_CAPACITY: "1"
+      FIXTURE_SEED: "106513"
+
+  equal3-1:
+    <<: *fixture
+    profiles: [equal-capacity-3]
+    ports: ["127.0.0.1:6801:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal3-1
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_SEED: "106801"
+
+  equal3-2:
+    <<: *fixture
+    profiles: [equal-capacity-3]
+    ports: ["127.0.0.1:6802:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal3-2
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_SEED: "106802"
+
+  equal3-3:
+    <<: *fixture
+    profiles: [equal-capacity-3]
+    ports: ["127.0.0.1:6803:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal3-3
+      FIXTURE_CAPACITY: "4"
+      FIXTURE_SEED: "106803"
+
+  equal6-1:
+    <<: *fixture
+    profiles: [equal-capacity-6]
+    ports: ["127.0.0.1:6901:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal6-1
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106901"
+
+  equal6-2:
+    <<: *fixture
+    profiles: [equal-capacity-6]
+    ports: ["127.0.0.1:6902:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal6-2
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106902"
+
+  equal6-3:
+    <<: *fixture
+    profiles: [equal-capacity-6]
+    ports: ["127.0.0.1:6903:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal6-3
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106903"
+
+  equal6-4:
+    <<: *fixture
+    profiles: [equal-capacity-6]
+    ports: ["127.0.0.1:6904:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal6-4
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106904"
+
+  equal6-5:
+    <<: *fixture
+    profiles: [equal-capacity-6]
+    ports: ["127.0.0.1:6905:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal6-5
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106905"
+
+  equal6-6:
+    <<: *fixture
+    profiles: [equal-capacity-6]
+    ports: ["127.0.0.1:6906:8080"]
+    environment:
+      <<: *equal-environment
+      FIXTURE_ID: equal6-6
+      FIXTURE_CAPACITY: "2"
+      FIXTURE_SEED: "106906"

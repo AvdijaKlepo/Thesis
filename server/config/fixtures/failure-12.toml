@@ -1,0 +1,40 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../../web"
+thread_pool_size = 16
+runtime = "async"
+default_service = "fixture"
+
+[health]
+enabled = true
+interval_ms = 1000
+timeout_ms = 250
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[observability]
+log_requests = false
+
+[[services]]
+id = "fixture"
+kind = "proxy"
+algorithm = "round_robin"
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "failure-healthy-1", address = "127.0.0.1:6601", weight = 1 },
+    { id = "failure-healthy-2", address = "127.0.0.1:6602", weight = 1 },
+    { id = "failure-healthy-3", address = "127.0.0.1:6603", weight = 1 },
+    { id = "failure-healthy-4", address = "127.0.0.1:6604", weight = 1 },
+    { id = "failure-flaky-1", address = "127.0.0.1:6605", weight = 1 },
+    { id = "failure-flaky-2", address = "127.0.0.1:6606", weight = 1 },
+    { id = "failure-flaky-3", address = "127.0.0.1:6607", weight = 1 },
+    { id = "failure-flaky-4", address = "127.0.0.1:6608", weight = 1 },
+    { id = "failure-always-1", address = "127.0.0.1:6609", weight = 1 },
+    { id = "failure-always-2", address = "127.0.0.1:6610", weight = 1 },
+    { id = "failure-always-3", address = "127.0.0.1:6611", weight = 1 },
+    { id = "failure-always-4", address = "127.0.0.1:6612", weight = 1 },
+]
+

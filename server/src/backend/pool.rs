@@ -13,8 +13,8 @@ use crate::{
     Backend,
     algorithms::{
         AlgorithmKind,
-        balancers::{BackendNode, LoadBalancer},
-        create_load_balancer_for,
+        balancers::{AdaptiveV2Settings, BackendNode, LoadBalancer},
+        create_load_balancer_for_with_adaptive_v2_settings,
     },
     backend::{
         model::Feedback,
@@ -28,6 +28,7 @@ pub enum BackendPoolError {
     DuplicateBackendAddress(String),
     InvalidBackend(&'static str),
     BackendNotFound(String),
+    InvalidAdaptiveV2Settings(String),
 }
 
 impl Display for BackendPoolError {
@@ -39,6 +40,12 @@ impl Display for BackendPoolError {
             }
             Self::InvalidBackend(reason) => write!(formatter, "invalid backend: {reason}"),
             Self::BackendNotFound(id) => write!(formatter, "backend not found: {id}"),
+            Self::InvalidAdaptiveV2Settings(reason) => {
+                write!(
+                    formatter,
+                    "invalid adaptive_balancing_v2 settings: {reason}"
+                )
+            }
         }
     }
 }
@@ -94,6 +101,7 @@ pub struct BackendPool {
     algorithm: RwLock<AlgorithmKind>,
     load_balancer: Arc<ArcSwap<Box<dyn LoadBalancer>>>,
     fail_open: AtomicBool,
+    adaptive_v2_settings: RwLock<AdaptiveV2Settings>,
     mutation_lock: Mutex<()>,
 }
 
@@ -107,23 +115,57 @@ impl BackendPool {
         backends: Vec<Backend>,
         fail_open: bool,
     ) -> Result<Self, BackendPoolError> {
+        Self::new_with_fail_open_and_adaptive_v2_settings(
+            algorithm,
+            backends,
+            fail_open,
+            AdaptiveV2Settings::default(),
+        )
+    }
+
+    pub fn new_with_adaptive_v2_settings(
+        algorithm: AlgorithmKind,
+        backends: Vec<Backend>,
+        adaptive_v2_settings: AdaptiveV2Settings,
+    ) -> Result<Self, BackendPoolError> {
+        Self::new_with_fail_open_and_adaptive_v2_settings(
+            algorithm,
+            backends,
+            false,
+            adaptive_v2_settings,
+        )
+    }
+
+    pub fn new_with_fail_open_and_adaptive_v2_settings(
+        algorithm: AlgorithmKind,
+        backends: Vec<Backend>,
+        fail_open: bool,
+        adaptive_v2_settings: AdaptiveV2Settings,
+    ) -> Result<Self, BackendPoolError> {
         validate_backends(&backends)?;
+        adaptive_v2_settings
+            .validate()
+            .map_err(|reason| BackendPoolError::InvalidAdaptiveV2Settings(reason.into()))?;
 
         let registry = Arc::new(BackendRegistry::new());
         for backend in backends {
             registry.add(BackendNode::new(backend));
         }
 
-        let load_balancer = Arc::new(ArcSwap::from_pointee(create_load_balancer_for(
-            algorithm,
-            registry.all(),
-        )));
+        let load_balancer = Arc::new(ArcSwap::from_pointee(
+            create_load_balancer_for_with_adaptive_v2_settings(
+                algorithm,
+                registry.all(),
+                adaptive_v2_settings,
+            ),
+        ));
 
         Ok(Self {
             registry,
             algorithm: RwLock::new(algorithm),
             load_balancer,
             fail_open: AtomicBool::new(fail_open),
+            adaptive_v2_settings: RwLock::new(adaptive_v2_settings),
             mutation_lock: Mutex::new(()),
         })
     }
@@ -144,6 +186,25 @@ impl BackendPool {
 
     pub fn set_fail_open(&self, fail_open: bool) {
         self.fail_open.store(fail_open, Ordering::Relaxed);
+    }
+
+    pub fn adaptive_v2_settings(&self) -> AdaptiveV2Settings {
+        *self.adaptive_v2_settings.read().unwrap()
+    }
+
+    pub fn set_adaptive_v2_settings(
+        &self,
+        settings: AdaptiveV2Settings,
+    ) -> Result<(), BackendPoolError> {
+        settings
+            .validate()
+            .map_err(|reason| BackendPoolError::InvalidAdaptiveV2Settings(reason.into()))?;
+        let _mutation = self.mutation_lock.lock().unwrap();
+        *self.adaptive_v2_settings.write().unwrap() = settings;
+        if self.algorithm() == AlgorithmKind::AdaptiveBalancingV2 {
+            self.rebuild_load_balancer(self.algorithm());
+        }
+        Ok(())
     }
 
     pub fn select_backend(&self) -> Result<BackendSelection, BackendSelectionError> {
@@ -255,10 +316,13 @@ impl BackendPool {
     }
 
     fn rebuild_load_balancer(&self, algorithm: AlgorithmKind) {
-        self.load_balancer.store(Arc::new(create_load_balancer_for(
-            algorithm,
-            self.registry.all(),
-        )));
+        self.load_balancer.store(Arc::new(
+            create_load_balancer_for_with_adaptive_v2_settings(
+                algorithm,
+                self.registry.all(),
+                self.adaptive_v2_settings(),
+            ),
+        ));
     }
 }
 

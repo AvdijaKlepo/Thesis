@@ -34,6 +34,14 @@ serverctl service probe catalog --probe-timeout-ms 250
 serverctl service remove catalog
 ```
 
+Proxy service responses include the effective `adaptive_v2` settings. A JSON
+`PATCH /services/{id}` request can replace them while the service is running,
+for example:
+
+```json
+{"adaptive_v2":{"deadline_ms":150,"ewma_alpha":0.2,"slo_weight":0.7,"probe_interval_per_backend":32,"in_flight_penalty":0.05}}
+```
+
 Create a static service with an existing directory. Relative roots are resolved by `serverctl` before they are sent, so use an absolute server-local path when managing another host.
 
 ```text
@@ -69,6 +77,12 @@ serverctl runtime get
 serverctl runtime set async
 serverctl metrics
 ```
+
+The structured `/metrics` snapshot includes `adaptive_diagnostics` for each
+adaptive proxy service. The read-only snapshot reports per-backend observations,
+deadline and latency EWMAs, bounded staleness, in-flight reservations, final
+score, effective settings, and its capture timestamp; non-adaptive services
+return `null`.
 
 ## Restricted port discovery
 

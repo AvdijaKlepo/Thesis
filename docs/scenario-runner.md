@@ -50,7 +50,18 @@ Relative paths are resolved from the manifest directory. Commands are executed d
 - `{runtime}`
 - `{repetition}`
 
-Each workload has a fixed request count and concurrency. `requests_per_second` adds deterministic pacing; `jitter_ms` adds deterministic, seed-derived positive jitter. Multiple `[[scenarios.workloads]]` entries begin from the same monotonic clock and therefore run simultaneously. Timed `[[scenarios.failures]]` actions use that same clock. Set `target_backend_id` on a recovery action when recovery latency should be measured for a particular backend; the runner validates that the ID exists in the server configuration and records it in the event log. A non-zero external command fails its run unless `allow_failure = true` is set on that command.
+Each workload has a fixed request count and concurrency. `requests_per_second` adds deterministic pacing; `jitter_ms` adds deterministic, seed-derived positive jitter. Multiple `[[scenarios.workloads]]` entries begin from the same monotonic clock and therefore run simultaneously. Timed `[[scenarios.failures]]` actions use that same clock. Set `target_backend_id` on a recovery action when recovery latency should be measured for a particular backend; the runner validates that the ID exists in the server configuration and records it in the event log. A non-zero external command fails its run unless `allow_failure = true` is set on that command. Typed `[[scenarios.fixture_changes]]` entries use the same clock to patch a running backend fixture's latency, jitter, processing delay, or error behavior; fixture identity, listener, capacity, and seed are immutable, and failed changes fail the run unless explicitly allowed.
+
+Phase-two measurement options are opt-in. Set `slo_target_ms` on a scenario to
+measure successful completions against that target. Define named half-open
+`analysis_windows` with `start_ms` and `end_ms` to inspect warm-up, steady-state,
+or recovery intervals. Set `paired_workload_seeds = true` at the experiment
+level and give matching scenarios a `workload_seed_group` to reuse each
+workload's arrival schedule across backend-cardinality scenarios; `run_seed`
+remains unique for each matrix cell. Set `execution_order = "blocked_randomized"`
+to randomize algorithm order within each scenario/runtime/repetition block while
+keeping the order deterministic from the experiment seed. Existing manifests
+default to their declared order and seed derivation.
 
 The example's Compose setup and recovery commands wait for fixture health before returning, keeping container startup races out of the measurement window.
 
@@ -66,8 +77,14 @@ An experiment directory contains the original manifest, a resolved JSON snapshot
 - `server-config.toml`: the exact operational configuration used for that run.
 - `requests.jsonl`: one raw end-to-end measurement per generated request, including planned and actual start offsets, timestamps, latency, status, transport errors, byte count, and fixture/backend identifiers.
 - `resource-samples.jsonl`: raw 100 ms server-process CPU-time and memory samples during the measured workload.
-- `events.jsonl`: ordered server, workload, setup, teardown, failure, recovery, and collection events, including command output and exit status.
+- `events.jsonl`: ordered server, workload, setup, teardown, failure, fixture
+  change, recovery, and collection events, including command output and exit
+  status.
 - `metrics-before.json` and `metrics-after.json`: untouched structured server snapshots.
+- `adaptive-diagnostics-before.json` and `adaptive-diagnostics-after.json`:
+  adaptive-policy snapshots, including per-backend observations, EWMA rewards,
+  staleness, in-flight reservations, scores, settings, and timestamps. They are
+  empty arrays for non-adaptive policies.
 - `collection-*.body` and `collection-*.json`: untouched endpoint bodies plus response metadata.
 - `server.stdout.log` and `server.stderr.log`: exact process output, including per-request JSON events when server request logging is enabled.
 
@@ -96,15 +113,21 @@ The analyzer leaves the experiment and every run directory untouched. Its
 `analysis/` directory contains:
 
 - `analysis.json`: run-level results, grouped statistics, calculation definitions,
-  and a SHA-256 inventory of every raw input.
+  and a SHA-256 inventory of every raw input (derived report schema version 2).
 - `run-summary.csv`, `group-summary.csv`, and long-form `group-statistics.csv`:
   end-to-end throughput, transport and
   HTTP errors, interpolated p50/p90/p95/p99/p99.9 latency, and 95% confidence
   intervals across repetitions.
+- `workload-summary.csv`: per-run foreground/background workload totals, errors,
+  latency, SLO attainment, and scheduling lag.
+- `window-summary.csv` and `group-window-summary.csv`: request allocation and
+  latency for each declared time window, plus cross-repetition summaries.
 - `backend-fairness.csv` and `backend-fairness.json`: request-attempt deltas per
   backend, configured weights, normalized load, and Jain fairness indices.
-- `resource-usage.csv`: server-process CPU time/utilization and resident/virtual
-  memory summaries from `resource-samples.jsonl`.
+- `resource-usage.csv`: separate server-process CPU time/utilization and
+  resident/virtual memory summaries, together with optional whole-host CPU and
+  memory summaries from `resource-samples.jsonl`; unsupported host sampling is
+  represented as null values with a warning in `analysis.json`.
 - `recovery.csv`: time from a successful restore/recover/restart/resume/enable/start/heal/up
   action's start to the first successful response and to five consecutive successes
   from its explicitly targeted backend. Actions without `target_backend_id` retain

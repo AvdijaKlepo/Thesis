@@ -126,11 +126,23 @@ fn fixture_server_configurations_load() {
         .join("config")
         .join("fixtures");
 
-    for file_name in [
-        "equal-capacity.toml",
-        "heterogeneous.toml",
-        "variable-latency.toml",
-        "failure.toml",
+    for (file_name, expected_backends) in [
+        ("equal-capacity.toml", 3),
+        ("heterogeneous.toml", 3),
+        ("variable-latency.toml", 3),
+        ("failure.toml", 3),
+        ("equal-capacity-3.toml", 3),
+        ("equal-capacity-6.toml", 6),
+        ("cardinality-3.toml", 3),
+        ("cardinality-6.toml", 6),
+        ("cardinality-12.toml", 12),
+        ("equal-capacity-12.toml", 12),
+        ("heterogeneous-replicas-13.toml", 13),
+        ("failure-12.toml", 12),
+        ("variable-latency-12.toml", 12),
+        ("adaptive-v2-tuning-balanced.toml", 6),
+        ("adaptive-v2-tuning-deadline.toml", 6),
+        ("adaptive-v2-tuning-latency.toml", 6),
     ] {
         let config = AppConfig::load(directory.join(file_name))
             .unwrap_or_else(|error| panic!("{file_name} should be valid: {error}"));
@@ -142,7 +154,39 @@ fn fixture_server_configurations_load() {
                 .unwrap()
                 .backends()
                 .len(),
-            3
+            expected_backends
         );
     }
+}
+
+#[test]
+fn adaptive_v2_settings_are_optional_and_configurable() {
+    let defaults = AppConfig::from_toml(VALID_CONFIG).unwrap();
+    assert_eq!(
+        defaults.services[0].adaptive_v2,
+        AdaptiveV2Settings::default()
+    );
+
+    let configured = VALID_CONFIG.replace(
+        "algorithm = \"weighted_round_robin\"",
+        "algorithm = \"adaptive_balancing_v2\"\nadaptive_v2 = { deadline_ms = 150, ewma_alpha = 0.4, slo_weight = 0.8, probe_interval_per_backend = 5, in_flight_penalty = 0.15 }",
+    );
+    let config = AppConfig::from_toml(&configured).unwrap();
+    let registry = config.build_service_registry().unwrap();
+    let pool = config.default_backend_pool(&registry).unwrap();
+    assert_eq!(pool.algorithm(), AlgorithmKind::AdaptiveBalancingV2);
+    assert_eq!(pool.adaptive_v2_settings().deadline_ms, 150);
+    assert_eq!(pool.adaptive_v2_settings().probe_interval_per_backend, 5);
+}
+
+#[test]
+fn rejects_invalid_adaptive_v2_settings() {
+    let invalid = VALID_CONFIG.replace(
+        "algorithm = \"weighted_round_robin\"",
+        "algorithm = \"adaptive_balancing_v2\"\nadaptive_v2 = { ewma_alpha = 0.0 }",
+    );
+    assert!(matches!(
+        AppConfig::from_toml(&invalid),
+        Err(ConfigError::Invalid(_))
+    ));
 }

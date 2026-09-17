@@ -1,0 +1,41 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../../web"
+thread_pool_size = 16
+runtime = "async"
+default_service = "fixture"
+
+[health]
+enabled = true
+interval_ms = 1000
+timeout_ms = 250
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[observability]
+log_requests = false
+
+[[services]]
+id = "fixture"
+kind = "proxy"
+algorithm = "round_robin"
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "heterogeneous13-small-1", address = "127.0.0.1:6501", weight = 1 },
+    { id = "heterogeneous13-medium-1", address = "127.0.0.1:6502", weight = 1 },
+    { id = "heterogeneous13-medium-2", address = "127.0.0.1:6503", weight = 1 },
+    { id = "heterogeneous13-medium-3", address = "127.0.0.1:6504", weight = 1 },
+    { id = "heterogeneous13-medium-4", address = "127.0.0.1:6505", weight = 1 },
+    { id = "heterogeneous13-large-1", address = "127.0.0.1:6506", weight = 1 },
+    { id = "heterogeneous13-large-2", address = "127.0.0.1:6507", weight = 1 },
+    { id = "heterogeneous13-large-3", address = "127.0.0.1:6508", weight = 1 },
+    { id = "heterogeneous13-large-4", address = "127.0.0.1:6509", weight = 1 },
+    { id = "heterogeneous13-large-5", address = "127.0.0.1:6510", weight = 1 },
+    { id = "heterogeneous13-large-6", address = "127.0.0.1:6511", weight = 1 },
+    { id = "heterogeneous13-large-7", address = "127.0.0.1:6512", weight = 1 },
+    { id = "heterogeneous13-large-8", address = "127.0.0.1:6513", weight = 1 },
+]
+

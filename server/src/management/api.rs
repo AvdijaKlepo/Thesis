@@ -431,6 +431,11 @@ fn patch_service(
                     "proxy service cannot define root",
                 ));
             }
+            if let Some(settings) = patch.adaptive_v2 {
+                settings
+                    .validate()
+                    .map_err(|reason| ApiError::new(400, "invalid_adaptive_v2_settings", reason))?;
+            }
             if routes != existing.routes {
                 registry
                     .replace(Service::proxy(service_id, routes, Arc::clone(pool))?)
@@ -442,9 +447,14 @@ fn patch_service(
             if let Some(fail_open) = patch.fail_open {
                 pool.set_fail_open(fail_open);
             }
+            if let Some(settings) = patch.adaptive_v2 {
+                pool.set_adaptive_v2_settings(settings)
+                    .map_err(ApiError::from)?;
+            }
         }
         ServiceTarget::Static { root } => {
-            if patch.algorithm.is_some() || patch.fail_open.is_some() {
+            if patch.algorithm.is_some() || patch.fail_open.is_some() || patch.adaptive_v2.is_some()
+            {
                 return Err(ApiError::new(
                     400,
                     "invalid_service",
@@ -687,6 +697,7 @@ impl From<BackendPoolError> for ApiError {
             BackendPoolError::DuplicateBackendId(_)
             | BackendPoolError::DuplicateBackendAddress(_) => (409, "backend_conflict"),
             BackendPoolError::InvalidBackend(_) => (400, "invalid_backend"),
+            BackendPoolError::InvalidAdaptiveV2Settings(_) => (400, "invalid_adaptive_v2_settings"),
         };
         Self::new(status, code, value.to_string())
     }

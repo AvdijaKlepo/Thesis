@@ -170,3 +170,39 @@ fn records_services_added_after_observability_startup() {
     assert_eq!(metrics.successful_requests, 1);
     assert_eq!(snapshot.services[0].service_id, "dynamic");
 }
+
+#[test]
+fn structured_metrics_include_adaptive_diagnostics() {
+    let observability = Observability::new(["adaptive"], false);
+    let registry = ServiceRegistry::new();
+    registry
+        .add(
+            Service::proxy(
+                "adaptive",
+                vec![RouteMatcher::new(None::<String>, "/").unwrap()],
+                Arc::new(
+                    BackendPool::new(
+                        AlgorithmKind::AdaptiveBalancingV2,
+                        vec![Backend {
+                            id: "adaptive-backend".into(),
+                            address: "127.0.0.1:8080".into(),
+                            weight: 1,
+                        }],
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let snapshot = observability.snapshot(&registry);
+    let diagnostics = snapshot.services[0]
+        .adaptive_diagnostics
+        .as_ref()
+        .expect("adaptive diagnostics");
+    assert_eq!(diagnostics.algorithm, "adaptive_balancing_v2");
+    assert!(diagnostics.settings.is_some());
+    assert_eq!(diagnostics.backends.len(), 1);
+    assert_eq!(diagnostics.backends[0].backend_id, "adaptive-backend");
+}

@@ -25,6 +25,8 @@ The binary accepts equivalent flags such as `--capacity`, `--latency-ms`, and `-
 - `GET /health` reports liveness and bypasses configured workload failures.
 - `GET /config` returns the effective configuration as JSON.
 - `GET /metrics` returns workload totals plus current and maximum active requests.
+- `POST /control` applies a typed JSON patch to latency, jitter, processing
+  delay, or error behavior and returns the new effective configuration.
 - Every other path executes the configured workload.
 
 Successful and HTTP-error workload responses include `X-Fixture-Backend` and `X-Fixture-Request-Id` headers and a JSON body describing the sampled delay. Health, configuration, and metrics requests are excluded from workload counters.
@@ -41,6 +43,55 @@ Successful and HTTP-error workload responses include `X-Fixture-Backend` and `X-
 | `failure` | 5401-5403 | Healthy, 35% disconnecting, and always-disconnecting fixtures. |
 
 Seeds are fixed in the Compose file. Changing only the proxy runtime or load-balancing algorithm therefore leaves the fixture definition constant.
+
+## Scaled fixture profiles
+
+`compose.scaled-fixtures.yml` is an additive profile set for backend-cardinality
+and host-bias studies. Its ports are separate from the original profiles:
+
+| Profile | Ports | Composition | Server configuration |
+| --- | --- | --- | --- |
+| `cardinality-3` | 6101-6103 | One fast, variable, and slow backend; four workers each. | `cardinality-3.toml` |
+| `cardinality-6` | 6201-6206 | Two replicas per latency class; two workers each. | `cardinality-6.toml` |
+| `cardinality-12` | 6301-6312 | Four replicas per latency class; one worker each. | `cardinality-12.toml` |
+| `equal-capacity-3` | 6801-6803 | Three identical 50 ms backends; four workers each. | `equal-capacity-3.toml` |
+| `equal-capacity-6` | 6901-6906 | Six identical 50 ms backends; two workers each. | `equal-capacity-6.toml` |
+| `equal-capacity-12` | 6401-6412 | Twelve identical one-worker backends. | `equal-capacity-12.toml` |
+| `heterogeneous-replicas-13` | 6501-6513 | One, four, and eight one-worker cohorts. | `heterogeneous-replicas-13.toml` |
+| `failure-12` | 6601-6612 | Four healthy, four flaky, and four always-failing backends. | `failure-12.toml` |
+| `variable-latency-12` | 6701-6712 | Four replicas per latency class; one worker each. | `variable-latency-12.toml` |
+
+Start and stop one scaled profile at a time because published ports are shared
+by the profiles and are intentionally easy to audit:
+
+```text
+docker compose -f compose.scaled-fixtures.yml --profile cardinality-12 up --build -d
+docker compose -f compose.scaled-fixtures.yml --profile cardinality-12 down
+```
+
+The matching server TOML files live under
+[`server/config/fixtures`](../server/config/fixtures). They use the same proxy,
+control, and admin ports as the original suite; run the profiles sequentially
+when those listeners are also in use.
+
+## Scheduled runtime changes
+
+Phase-three scenario manifests can schedule a fixture change without restarting
+the process:
+
+```toml
+[[scenarios.fixture_changes]]
+id = "swap-fast-to-slow"
+at_ms = 2000
+address = "127.0.0.1:5101"
+patch = { latency_ms = 250, latency_jitter_ms = 20 }
+```
+
+The patch schema deliberately excludes `id`, `listen_address`, `capacity`, and
+`seed`. The runner records the effective `/config` response before the patch and
+the effective configuration returned by `/control` after it in
+`fixture_change_started` and `fixture_change_completed` events. A failed change
+fails the run unless `allow_failure = true` is set on that change.
 
 ## Running a fixture profile manually
 

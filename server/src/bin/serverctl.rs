@@ -168,6 +168,7 @@ fn service_command(
                 },
                 fail_open: options.fail_open.unwrap_or(false),
                 backends: Vec::new(),
+                adaptive_v2: Default::default(),
                 root: options.root,
             };
             let service = client
@@ -186,6 +187,7 @@ fn service_command(
                 routes: (!options.routes.is_empty()).then_some(options.routes),
                 algorithm: options.algorithm,
                 fail_open: options.fail_open,
+                adaptive_v2: None,
                 root: options.root,
             };
             if patch.is_empty() {

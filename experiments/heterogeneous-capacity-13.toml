@@ -1,0 +1,212 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/heterogeneous-capacity-13.toml
+schema_version = 1
+name = "heterogeneous-capacity-13"
+seed = 20260924
+repetitions = 5
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
+runtimes = ["async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "heterogeneous-capacity-13"
+description = "Thirteen unit-capacity replicas arranged as 1, 4, and 8 backend cohorts."
+server_config = "../server/config/fixtures/heterogeneous-replicas-13.toml"
+workload_seed_group = "heterogeneous-capacity-13"
+slo_target_ms = 100
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "heterogeneous-replicas-13", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "heterogeneous13-small-1", "heterogeneous13-medium-1", "heterogeneous13-medium-2", "heterogeneous13-medium-3", "heterogeneous13-medium-4", "heterogeneous13-large-1", "heterogeneous13-large-2", "heterogeneous13-large-3", "heterogeneous13-large-4", "heterogeneous13-large-5", "heterogeneous13-large-6", "heterogeneous13-large-7", "heterogeneous13-large-8"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "heterogeneous-replicas-13", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "steady-reads"
+requests = 2400
+concurrency = 128
+method = "GET"
+path = "/experiment"
+requests_per_second = 240.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 3000
+
+[[scenarios.analysis_windows]]
+id = "steady"
+start_ms = 3000
+end_ms = 12000
+
+[[scenarios.collect]]
+id = "heterogeneous13-small-1-config"
+address = "127.0.0.1:6501"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-small-1-metrics"
+address = "127.0.0.1:6501"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-1-config"
+address = "127.0.0.1:6502"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-1-metrics"
+address = "127.0.0.1:6502"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-2-config"
+address = "127.0.0.1:6503"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-2-metrics"
+address = "127.0.0.1:6503"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-3-config"
+address = "127.0.0.1:6504"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-3-metrics"
+address = "127.0.0.1:6504"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-4-config"
+address = "127.0.0.1:6505"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-medium-4-metrics"
+address = "127.0.0.1:6505"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-1-config"
+address = "127.0.0.1:6506"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-1-metrics"
+address = "127.0.0.1:6506"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-2-config"
+address = "127.0.0.1:6507"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-2-metrics"
+address = "127.0.0.1:6507"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-3-config"
+address = "127.0.0.1:6508"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-3-metrics"
+address = "127.0.0.1:6508"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-4-config"
+address = "127.0.0.1:6509"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-4-metrics"
+address = "127.0.0.1:6509"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-5-config"
+address = "127.0.0.1:6510"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-5-metrics"
+address = "127.0.0.1:6510"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-6-config"
+address = "127.0.0.1:6511"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-6-metrics"
+address = "127.0.0.1:6511"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-7-config"
+address = "127.0.0.1:6512"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-7-metrics"
+address = "127.0.0.1:6512"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-8-config"
+address = "127.0.0.1:6513"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "heterogeneous13-large-8-metrics"
+address = "127.0.0.1:6513"
+path = "/metrics"
+phases = ["before", "after"]
+

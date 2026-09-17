@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::algorithms::balancers::{
-    AdaptiveBalancing, BackendNode, LeastConnections, LeastResponseTime, LoadBalancer, RoundRobin,
-    WeightedRoundRobin,
+    AdaptiveBalancing, AdaptiveBalancingV2, BackendNode, LeastConnections, LeastResponseTime,
+    LoadBalancer, RoundRobin, WeightedRoundRobin,
 };
+
+pub use crate::algorithms::balancers::AdaptiveV2Settings;
 
 pub mod balancers;
 
@@ -15,6 +17,7 @@ pub enum AlgorithmKind {
     LeastConnections,
     LeastResponseTime,
     AdaptiveBalancing,
+    AdaptiveBalancingV2,
 }
 
 impl AlgorithmKind {
@@ -25,6 +28,7 @@ impl AlgorithmKind {
             "least_connections" => Some(Self::LeastConnections),
             "least_response_time" => Some(Self::LeastResponseTime),
             "adaptive_balancing" => Some(Self::AdaptiveBalancing),
+            "adaptive_balancing_v2" => Some(Self::AdaptiveBalancingV2),
             _ => None,
         }
     }
@@ -36,6 +40,7 @@ impl AlgorithmKind {
             Self::LeastConnections => "least_connections",
             Self::LeastResponseTime => "least_response_time",
             Self::AdaptiveBalancing => "adaptive_balancing",
+            Self::AdaptiveBalancingV2 => "adaptive_balancing_v2",
         }
     }
 }
@@ -44,12 +49,28 @@ pub fn create_load_balancer_for(
     algorithm: AlgorithmKind,
     backends: Vec<BackendNode>,
 ) -> Box<dyn LoadBalancer> {
+    create_load_balancer_for_with_adaptive_v2_settings(
+        algorithm,
+        backends,
+        AdaptiveV2Settings::default(),
+    )
+}
+
+pub fn create_load_balancer_for_with_adaptive_v2_settings(
+    algorithm: AlgorithmKind,
+    backends: Vec<BackendNode>,
+    adaptive_v2_settings: AdaptiveV2Settings,
+) -> Box<dyn LoadBalancer> {
     match algorithm {
         AlgorithmKind::RoundRobin => Box::new(RoundRobin::new(backends)),
         AlgorithmKind::WeightedRoundRobin => Box::new(WeightedRoundRobin::new(backends)),
         AlgorithmKind::LeastConnections => Box::new(LeastConnections::new(backends)),
         AlgorithmKind::LeastResponseTime => Box::new(LeastResponseTime::new(backends)),
         AlgorithmKind::AdaptiveBalancing => Box::new(AdaptiveBalancing::new(backends)),
+        AlgorithmKind::AdaptiveBalancingV2 => Box::new(AdaptiveBalancingV2::with_settings(
+            backends,
+            adaptive_v2_settings,
+        )),
     }
 }
 

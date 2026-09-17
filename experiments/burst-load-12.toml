@@ -1,0 +1,216 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/burst-load-12.toml
+schema_version = 1
+name = "burst-load-12"
+seed = 20260927
+repetitions = 5
+output_directory = "../results"
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
+runtimes = ["async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "burst-load-12"
+description = "Background traffic with a transient burst and queue-draining interval on twelve equal backends."
+server_config = "../server/config/fixtures/equal-capacity-12.toml"
+workload_seed_group = "burst-load-12"
+slo_target_ms = 100
+
+[[scenarios.setup]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "equal-capacity-12", "up", "--build", "--force-recreate", "--wait", "--wait-timeout", "60", "equal12-1", "equal12-2", "equal12-3", "equal12-4", "equal12-5", "equal12-6", "equal12-7", "equal12-8", "equal12-9", "equal12-10", "equal12-11", "equal12-12"]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = ["compose", "-p", "webserver-scaled-{scenario}", "-f", "compose.scaled-fixtures.yml", "--profile", "equal-capacity-12", "down", "--timeout", "0"]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "background-reads"
+requests = 1200
+concurrency = 24
+method = "GET"
+path = "/experiment"
+requests_per_second = 60.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.workloads]]
+id = "burst-reads"
+requests = 1200
+concurrency = 128
+method = "GET"
+path = "/experiment"
+requests_per_second = 300.0
+jitter_ms = 2
+timeout_ms = 10000
+start_after_ms = 6000
+
+[[scenarios.analysis_windows]]
+id = "background"
+start_ms = 0
+end_ms = 6000
+
+[[scenarios.analysis_windows]]
+id = "burst"
+start_ms = 6000
+end_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "settling"
+start_ms = 10000
+end_ms = 20000
+
+[[scenarios.collect]]
+id = "equal12-1-config"
+address = "127.0.0.1:6401"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-1-metrics"
+address = "127.0.0.1:6401"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-2-config"
+address = "127.0.0.1:6402"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-2-metrics"
+address = "127.0.0.1:6402"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-3-config"
+address = "127.0.0.1:6403"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-3-metrics"
+address = "127.0.0.1:6403"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-4-config"
+address = "127.0.0.1:6404"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-4-metrics"
+address = "127.0.0.1:6404"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-5-config"
+address = "127.0.0.1:6405"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-5-metrics"
+address = "127.0.0.1:6405"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-6-config"
+address = "127.0.0.1:6406"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-6-metrics"
+address = "127.0.0.1:6406"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-7-config"
+address = "127.0.0.1:6407"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-7-metrics"
+address = "127.0.0.1:6407"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-8-config"
+address = "127.0.0.1:6408"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-8-metrics"
+address = "127.0.0.1:6408"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-9-config"
+address = "127.0.0.1:6409"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-9-metrics"
+address = "127.0.0.1:6409"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-10-config"
+address = "127.0.0.1:6410"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-10-metrics"
+address = "127.0.0.1:6410"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-11-config"
+address = "127.0.0.1:6411"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-11-metrics"
+address = "127.0.0.1:6411"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-12-config"
+address = "127.0.0.1:6412"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "equal12-12-metrics"
+address = "127.0.0.1:6412"
+path = "/metrics"
+phases = ["before", "after"]
+

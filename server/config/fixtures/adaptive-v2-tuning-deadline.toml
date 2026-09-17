@@ -1,0 +1,35 @@
+[server]
+proxy_address = "127.0.0.1:7879"
+control_address = "127.0.0.1:7878"
+admin_address = "127.0.0.1:7880"
+web_root = "../../web"
+thread_pool_size = 16
+runtime = "async"
+default_service = "fixture"
+
+[health]
+enabled = true
+interval_ms = 1000
+timeout_ms = 250
+unhealthy_threshold = 2
+healthy_threshold = 2
+
+[observability]
+log_requests = false
+
+[[services]]
+id = "fixture"
+kind = "proxy"
+algorithm = "adaptive_balancing_v2"
+adaptive_v2 = { deadline_ms = 150, ewma_alpha = 0.3, slo_weight = 0.85, probe_interval_per_backend = 24, in_flight_penalty = 0.05 }
+fail_open = false
+routes = [{ path_prefix = "/" }]
+backends = [
+    { id = "card6-fast-1", address = "127.0.0.1:6201", weight = 1 },
+    { id = "card6-fast-2", address = "127.0.0.1:6202", weight = 1 },
+    { id = "card6-variable-1", address = "127.0.0.1:6203", weight = 1 },
+    { id = "card6-variable-2", address = "127.0.0.1:6204", weight = 1 },
+    { id = "card6-slow-1", address = "127.0.0.1:6205", weight = 1 },
+    { id = "card6-slow-2", address = "127.0.0.1:6206", weight = 1 },
+]
+

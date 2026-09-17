@@ -26,6 +26,8 @@ struct ResourceSample {
     cpu_time_us: Option<u64>,
     resident_memory_bytes: Option<u64>,
     virtual_memory_bytes: Option<u64>,
+    host_cpu_percent: Option<f64>,
+    host_memory_bytes: Option<u64>,
     error: Option<String>,
 }
 
@@ -34,6 +36,13 @@ struct ProcessUsage {
     cpu_time_us: u64,
     resident_memory_bytes: u64,
     virtual_memory_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HostUsage {
+    cpu_total_us: u64,
+    cpu_idle_us: u64,
+    memory_used_bytes: u64,
 }
 
 pub(super) struct ResourceMonitor {
@@ -61,6 +70,7 @@ pub(super) fn start_resource_monitor(
     let handle = thread::spawn(move || {
         let mut writer = BufWriter::new(file);
         let mut sequence = 0_u64;
+        let mut previous_host = None;
         loop {
             if sequence > 0 && thread_stop.load(Ordering::Acquire) {
                 return Ok(());
@@ -68,6 +78,22 @@ pub(super) fn start_resource_monitor(
             let (usage, error) = match process_usage(pid) {
                 Ok(usage) => (Some(usage), None),
                 Err(error) => (None, Some(error)),
+            };
+            let (host_cpu_percent, host_memory_bytes, host_error) = match host_usage() {
+                Ok(host) => {
+                    let cpu_percent = previous_host.and_then(|previous: HostUsage| {
+                        let total_delta = host.cpu_total_us.saturating_sub(previous.cpu_total_us);
+                        let idle_delta = host.cpu_idle_us.saturating_sub(previous.cpu_idle_us);
+                        (total_delta > 0).then_some(
+                            (total_delta.saturating_sub(idle_delta) as f64 / total_delta as f64
+                                * 100.0)
+                                .clamp(0.0, 100.0),
+                        )
+                    });
+                    previous_host = Some(host);
+                    (cpu_percent, Some(host.memory_used_bytes), None)
+                }
+                Err(error) => (None, None, Some(error)),
             };
             let sample = ResourceSample {
                 schema_version: 1,
@@ -78,7 +104,9 @@ pub(super) fn start_resource_monitor(
                 cpu_time_us: usage.as_ref().map(|usage| usage.cpu_time_us),
                 resident_memory_bytes: usage.as_ref().map(|usage| usage.resident_memory_bytes),
                 virtual_memory_bytes: usage.as_ref().and_then(|usage| usage.virtual_memory_bytes),
-                error,
+                host_cpu_percent,
+                host_memory_bytes,
+                error: error.or_else(|| host_error.map(|error| format!("host: {error}"))),
             };
             serde_json::to_writer(&mut writer, &sample)?;
             writer.write_all(b"\n")?;
@@ -92,6 +120,24 @@ pub(super) fn start_resource_monitor(
         }
     });
     Ok(ResourceMonitor { stop, handle })
+}
+
+#[cfg(target_os = "windows")]
+fn host_usage() -> Result<HostUsage, String> {
+    windows::host_usage()
+}
+
+#[cfg(target_os = "linux")]
+fn host_usage() -> Result<HostUsage, String> {
+    linux::host_usage()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn host_usage() -> Result<HostUsage, String> {
+    Err(format!(
+        "host resource sampling is unsupported on {}",
+        std::env::consts::OS
+    ))
 }
 
 #[cfg(target_os = "windows")]
@@ -156,6 +202,21 @@ mod windows {
             kernel: *mut FileTime,
             user: *mut FileTime,
         ) -> i32;
+        fn GetSystemTimes(idle: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
+        fn GlobalMemoryStatusEx(status: *mut MemoryStatusEx) -> i32;
+    }
+
+    #[repr(C)]
+    struct MemoryStatusEx {
+        dw_length: u32,
+        memory_load: u32,
+        total_phys: u64,
+        avail_phys: u64,
+        total_page_file: u64,
+        avail_page_file: u64,
+        total_virtual: u64,
+        avail_virtual: u64,
+        avail_extended_virtual: u64,
     }
 
     #[link(name = "psapi")]
@@ -219,6 +280,36 @@ mod windows {
         })
     }
 
+    pub(super) fn host_usage() -> Result<super::HostUsage, String> {
+        let mut idle = FileTime::default();
+        let mut kernel = FileTime::default();
+        let mut user = FileTime::default();
+        if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let idle = file_time_units(idle);
+        let total = file_time_units(kernel).saturating_add(file_time_units(user));
+        let mut memory = MemoryStatusEx {
+            dw_length: size_of::<MemoryStatusEx>() as u32,
+            memory_load: 0,
+            total_phys: 0,
+            avail_phys: 0,
+            total_page_file: 0,
+            avail_page_file: 0,
+            total_virtual: 0,
+            avail_virtual: 0,
+            avail_extended_virtual: 0,
+        };
+        if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(super::HostUsage {
+            cpu_total_us: total / 10,
+            cpu_idle_us: idle / 10,
+            memory_used_bytes: memory.total_phys.saturating_sub(memory.avail_phys),
+        })
+    }
+
     fn file_time_units(value: FileTime) -> u64 {
         (u64::from(value.high) << 32) | u64::from(value.low)
     }
@@ -264,6 +355,54 @@ mod linux {
                 / clock_ticks_per_second as u64,
             resident_memory_bytes: resident_pages.saturating_mul(page_size_bytes as u64),
             virtual_memory_bytes: Some(virtual_memory_bytes),
+        })
+    }
+
+    pub(super) fn host_usage() -> Result<super::HostUsage, String> {
+        let stat = fs::read_to_string("/proc/stat").map_err(|error| error.to_string())?;
+        let cpu = stat
+            .lines()
+            .find(|line| line.starts_with("cpu "))
+            .ok_or_else(|| "missing aggregate CPU line in /proc/stat".to_string())?;
+        let values = cpu
+            .split_whitespace()
+            .skip(1)
+            .take(8)
+            .map(|value| {
+                value
+                    .parse::<u64>()
+                    .map_err(|_| "invalid aggregate CPU value in /proc/stat".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if values.len() < 4 {
+            return Err("incomplete aggregate CPU line in /proc/stat".into());
+        }
+        let total_ticks = values.iter().copied().sum::<u64>();
+        let idle_ticks = values[3].saturating_add(values.get(4).copied().unwrap_or_default());
+        let memory = fs::read_to_string("/proc/meminfo").map_err(|error| error.to_string())?;
+        let mut total_memory = None;
+        let mut available_memory = None;
+        for line in memory.lines() {
+            let mut parts = line.split_whitespace();
+            match parts.next() {
+                Some("MemTotal:") => {
+                    total_memory = parts.next().and_then(|value| value.parse().ok())
+                }
+                Some("MemAvailable:") => {
+                    available_memory = parts.next().and_then(|value| value.parse().ok())
+                }
+                _ => {}
+            }
+        }
+        let total_memory =
+            total_memory.ok_or_else(|| "missing MemTotal in /proc/meminfo".to_string())?;
+        let available_memory = available_memory.unwrap_or_default();
+        Ok(super::HostUsage {
+            cpu_total_us: total_ticks.saturating_mul(10_000),
+            cpu_idle_us: idle_ticks.saturating_mul(10_000),
+            memory_used_bytes: total_memory
+                .saturating_sub(available_memory)
+                .saturating_mul(1024),
         })
     }
 

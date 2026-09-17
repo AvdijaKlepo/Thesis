@@ -6,23 +6,24 @@ use std::{
     io::{self, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     sync::{
-        Arc,
+        Arc, RwLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::thread_pool::worker::ThreadPool;
 
 const MAX_REQUEST_HEADER_SIZE: usize = 64 * 1024;
+const MAX_REQUEST_BODY_SIZE: usize = 64 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(2);
 const ERROR_SCALE: u64 = 1_000_000;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorMode {
     Status,
@@ -154,6 +155,29 @@ impl FixtureConfig {
         Ok(())
     }
 
+    fn apply_patch(&mut self, patch: &FixtureConfigPatch) -> Result<(), FixtureConfigError> {
+        patch.validate()?;
+        let mut candidate = self.clone();
+        if let Some(value) = patch.latency_ms {
+            candidate.latency_ms = value;
+        }
+        if let Some(value) = patch.latency_jitter_ms {
+            candidate.latency_jitter_ms = value;
+        }
+        if let Some(value) = patch.processing_ms {
+            candidate.processing_ms = value;
+        }
+        if let Some(value) = patch.error_rate {
+            candidate.error_rate = value;
+        }
+        if let Some(value) = patch.error_mode {
+            candidate.error_mode = value;
+        }
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
     fn apply_optional(
         &mut self,
         field: &'static str,
@@ -199,6 +223,46 @@ impl FixtureConfig {
     }
 }
 
+/// Runtime-mutable fixture controls. Identity, listener address, worker
+/// capacity, and seed intentionally do not appear here, so a control request
+/// cannot change the fixture's identity or concurrency model.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FixtureConfigPatch {
+    pub latency_ms: Option<u64>,
+    pub latency_jitter_ms: Option<u64>,
+    pub processing_ms: Option<u64>,
+    pub error_rate: Option<f64>,
+    pub error_mode: Option<ErrorMode>,
+}
+
+impl FixtureConfigPatch {
+    pub fn validate(&self) -> Result<(), FixtureConfigError> {
+        if self.latency_ms.is_none()
+            && self.latency_jitter_ms.is_none()
+            && self.processing_ms.is_none()
+            && self.error_rate.is_none()
+            && self.error_mode.is_none()
+        {
+            return Err(invalid(
+                "patch",
+                "{}",
+                "must include at least one mutable field",
+            ));
+        }
+        if let Some(error_rate) = self.error_rate
+            && (!error_rate.is_finite() || !(0.0..=1.0).contains(&error_rate))
+        {
+            return Err(invalid(
+                "error_rate",
+                error_rate.to_string(),
+                "must be between 0.0 and 1.0",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FixtureConfigError {
     UnknownArgument(String),
@@ -229,7 +293,7 @@ impl Display for FixtureConfigError {
 impl Error for FixtureConfigError {}
 
 pub struct FixtureServer {
-    config: FixtureConfig,
+    config: Arc<RwLock<FixtureConfig>>,
     workers: ThreadPool,
     state: Arc<FixtureState>,
 }
@@ -239,25 +303,27 @@ impl FixtureServer {
         config.validate()?;
         Ok(Self {
             workers: ThreadPool::new(config.capacity),
-            config,
+            config: Arc::new(RwLock::new(config)),
             state: Arc::new(FixtureState::default()),
         })
     }
 
     pub fn run(&self) -> io::Result<()> {
-        let listener = TcpListener::bind(&self.config.listen_address)?;
+        let config = self.config.read().unwrap().clone();
+        let listener = TcpListener::bind(&config.listen_address)?;
         eprintln!(
             "Fixture '{}' listening on {} with capacity {}",
-            self.config.id, self.config.listen_address, self.config.capacity
+            config.id, config.listen_address, config.capacity
         );
 
         for stream in listener.incoming() {
             let stream = stream?;
-            let config = self.config.clone();
+            let config = Arc::clone(&self.config);
             let state = Arc::clone(&self.state);
             self.workers.execute(move || {
-                if let Err(error) = handle_connection(stream, &config, &state) {
-                    eprintln!("Fixture '{}' connection error: {error}", config.id);
+                if let Err(error) = handle_connection_shared(stream, &config, &state) {
+                    let fixture_id = config.read().unwrap().id.clone();
+                    eprintln!("Fixture '{}' connection error: {error}", fixture_id);
                 }
             });
         }
@@ -334,6 +400,7 @@ struct WorkResponse<'a> {
     processing_ms: u64,
 }
 
+#[cfg(test)]
 fn handle_connection(
     mut stream: TcpStream,
     config: &FixtureConfig,
@@ -341,13 +408,46 @@ fn handle_connection(
 ) -> io::Result<()> {
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
-    let Some(path) = read_request_path(&mut stream)? else {
+    let Some(request) = read_request(&mut stream)? else {
         return Ok(());
     };
 
-    match path.as_str() {
-        "/health" => write_json(
-            &mut stream,
+    handle_request(&mut stream, config, state, request, None)
+}
+
+fn handle_connection_shared(
+    mut stream: TcpStream,
+    shared_config: &Arc<RwLock<FixtureConfig>>,
+    state: &FixtureState,
+) -> io::Result<()> {
+    stream.set_read_timeout(Some(IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(IO_TIMEOUT))?;
+    let Some(request) = read_request(&mut stream)? else {
+        return Ok(());
+    };
+    let config = shared_config.read().unwrap().clone();
+
+    handle_request(
+        &mut stream,
+        &config,
+        state,
+        request,
+        Some(shared_config.as_ref()),
+    )
+}
+
+fn handle_request(
+    stream: &mut TcpStream,
+    config: &FixtureConfig,
+    state: &FixtureState,
+    request: FixtureRequest,
+    shared_config: Option<&RwLock<FixtureConfig>>,
+) -> io::Result<()> {
+    let FixtureRequest { method, path, body } = request;
+
+    match (method.as_str(), path.as_str()) {
+        ("GET", "/health") => write_json(
+            stream,
             200,
             "OK",
             &HealthResponse {
@@ -357,16 +457,40 @@ fn handle_connection(
             &config.id,
             None,
         ),
-        "/config" => write_json(&mut stream, 200, "OK", config, &config.id, None),
-        "/metrics" => write_json(
-            &mut stream,
+        ("GET", "/config") => write_json(stream, 200, "OK", config, &config.id, None),
+        ("GET", "/metrics") => write_json(
+            stream,
             200,
             "OK",
             &state.snapshot(config.capacity),
             &config.id,
             None,
         ),
-        _ => handle_workload(&mut stream, config, state),
+        ("POST", "/control") => {
+            let Some(shared_config) = shared_config else {
+                return write_error(stream, config, 405, "fixture control is unavailable");
+            };
+            let patch = match serde_json::from_slice::<FixtureConfigPatch>(&body) {
+                Ok(patch) => patch,
+                Err(error) => {
+                    return write_error(
+                        stream,
+                        config,
+                        400,
+                        &format!("invalid fixture control patch: {error}"),
+                    );
+                }
+            };
+            let mut effective = shared_config.write().unwrap();
+            match effective.apply_patch(&patch) {
+                Ok(()) => write_json(stream, 200, "OK", &*effective, &effective.id, None),
+                Err(error) => write_error(stream, &effective, 400, &error.to_string()),
+            }
+        }
+        _ if path == "/control" => {
+            write_error(stream, config, 405, "fixture control requires POST")
+        }
+        _ => handle_workload(stream, config, state),
     }
 }
 
@@ -423,10 +547,16 @@ fn handle_workload(
     response
 }
 
-fn read_request_path(stream: &mut TcpStream) -> io::Result<Option<String>> {
+struct FixtureRequest {
+    method: String,
+    path: String,
+    body: Vec<u8>,
+}
+
+fn read_request(stream: &mut TcpStream) -> io::Result<Option<FixtureRequest>> {
     let mut request = Vec::with_capacity(1024);
     let mut chunk = [0_u8; 1024];
-    loop {
+    let header_end = loop {
         let read = stream.read(&mut chunk)?;
         if read == 0 {
             return if request.is_empty() {
@@ -439,8 +569,8 @@ fn read_request_path(stream: &mut TcpStream) -> io::Result<Option<String>> {
             };
         }
         request.extend_from_slice(&chunk[..read]);
-        if request.windows(4).any(|window| window == b"\r\n\r\n") {
-            break;
+        if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position + 4;
         }
         if request.len() > MAX_REQUEST_HEADER_SIZE {
             return Err(io::Error::new(
@@ -448,20 +578,66 @@ fn read_request_path(stream: &mut TcpStream) -> io::Result<Option<String>> {
                 "request headers exceeded maximum size",
             ));
         }
-    }
+    };
 
-    let request_line = String::from_utf8_lossy(&request)
-        .lines()
+    let header = String::from_utf8_lossy(&request[..header_end]);
+    let mut lines = header.lines();
+    let request_line = lines.next().unwrap_or("");
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default().to_string();
+    let target = request_parts
         .next()
-        .unwrap_or("")
-        .to_string();
-    let target = request_line
-        .split_whitespace()
-        .nth(1)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "request line has no target"))?;
-    Ok(Some(
-        target.split(['?', '#']).next().unwrap_or("/").to_string(),
-    ))
+    let content_length = lines
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case("content-length"))
+        .map(|(_, value)| value.trim().parse::<usize>())
+        .transpose()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid content length"))?
+        .unwrap_or(0);
+    if content_length > MAX_REQUEST_BODY_SIZE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "request body exceeded maximum size",
+        ));
+    }
+    let mut body = request[header_end..].to_vec();
+    while body.len() < content_length {
+        let read = stream.read(&mut chunk)?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "connection closed before request body was complete",
+            ));
+        }
+        body.extend_from_slice(&chunk[..read]);
+    }
+    body.truncate(content_length);
+    Ok(Some(FixtureRequest {
+        method,
+        path: target.split(['?', '#']).next().unwrap_or("/").to_string(),
+        body,
+    }))
+}
+
+fn write_error(
+    stream: &mut TcpStream,
+    config: &FixtureConfig,
+    status: u16,
+    message: &str,
+) -> io::Result<()> {
+    write_json(
+        stream,
+        status,
+        if status == 405 {
+            "Method Not Allowed"
+        } else {
+            "Bad Request"
+        },
+        &serde_json::json!({"error": message}),
+        &config.id,
+        None,
+    )
 }
 
 fn write_json<T: Serialize>(

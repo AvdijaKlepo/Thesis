@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use crate::{
     Backend,
-    algorithms::AlgorithmKind,
+    algorithms::{AlgorithmKind, balancers::AdaptiveV2Settings},
     backend::{BackendPool, BackendPoolError},
     proxy::{HealthCheckConfig, RuntimeMode},
     service::{RouteMatcher, Service, ServiceRegistry, ServiceRegistryError},
@@ -136,10 +136,11 @@ impl AppConfig {
                             weight: backend.weight,
                         })
                         .collect();
-                    let pool = Arc::new(BackendPool::new_with_fail_open(
+                    let pool = Arc::new(BackendPool::new_with_fail_open_and_adaptive_v2_settings(
                         algorithm,
                         backends,
                         service.fail_open,
+                        service.adaptive_v2,
                     )?);
                     Service::proxy(service.id.clone(), routes, pool)?
                 }
@@ -259,6 +260,12 @@ impl AppConfig {
             }
             match service.kind {
                 ServiceKind::Proxy => {
+                    service.adaptive_v2.validate().map_err(|reason| {
+                        ConfigError::Invalid(format!(
+                            "service '{}' adaptive_v2 {reason}",
+                            service.id
+                        ))
+                    })?;
                     if service.algorithm.is_none() {
                         return Err(ConfigError::Invalid(format!(
                             "proxy service '{}' must define an algorithm",
@@ -290,6 +297,7 @@ impl AppConfig {
                     if service.algorithm.is_some()
                         || service.fail_open
                         || !service.backends.is_empty()
+                        || service.adaptive_v2 != AdaptiveV2Settings::default()
                     {
                         return Err(ConfigError::Invalid(format!(
                             "static service '{}' cannot define proxy settings",
@@ -328,10 +336,11 @@ impl AppConfig {
                     Service::proxy(
                         service.id.clone(),
                         routes,
-                        Arc::new(BackendPool::new_with_fail_open(
+                        Arc::new(BackendPool::new_with_fail_open_and_adaptive_v2_settings(
                             algorithm,
                             backends,
                             service.fail_open,
+                            service.adaptive_v2,
                         )?),
                     )?
                 }
@@ -445,6 +454,8 @@ pub struct ServiceSettings {
     pub fail_open: bool,
     #[serde(default)]
     pub backends: Vec<BackendSettings>,
+    #[serde(default)]
+    pub adaptive_v2: AdaptiveV2Settings,
     pub root: Option<PathBuf>,
 }
 

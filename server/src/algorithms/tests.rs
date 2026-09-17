@@ -8,6 +8,7 @@ fn algorithm_kind_round_trips_through_its_name() {
         AlgorithmKind::LeastConnections,
         AlgorithmKind::LeastResponseTime,
         AlgorithmKind::AdaptiveBalancing,
+        AlgorithmKind::AdaptiveBalancingV2,
     ];
 
     for kind in kinds {
