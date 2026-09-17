@@ -1,5 +1,12 @@
 use super::*;
 
+fn feedback(latency_ms: u64, success: bool) -> Feedback {
+    Feedback {
+        latency: Duration::from_millis(latency_ms),
+        success,
+    }
+}
+
 fn test_node(id: &str, port: u16, weight: usize) -> BackendNode {
     BackendNode::new(Backend {
         id: id.into(),
@@ -136,6 +143,10 @@ fn test_load_balancer_names_and_backends() {
     let lrt = LeastResponseTime::new(vec![n1.clone(), n2.clone()]);
     assert_eq!(lrt.name(), "least_response_time");
     assert_eq!(lrt.backends().len(), 2);
+
+    let adaptive = AdaptiveBalancing::new(vec![n1, n2]);
+    assert_eq!(adaptive.name(), "adaptive_balancing");
+    assert_eq!(adaptive.backends().len(), 2);
 }
 
 #[test]
@@ -202,6 +213,10 @@ fn test_load_balancers_fail_closed_when_all_unhealthy() {
     let least_response_time = LeastResponseTime::new(vec![n1, n2]);
     assert!(least_response_time.next(false).is_none());
     assert!(least_response_time.next(true).is_some());
+
+    let adaptive = AdaptiveBalancing::new(least_response_time.backends().to_vec());
+    assert!(adaptive.next(false).is_none());
+    assert!(adaptive.next(true).is_some());
 }
 
 #[test]
@@ -210,4 +225,76 @@ fn empty_load_balancers_return_none() {
     assert!(WeightedRoundRobin::new(Vec::new()).next(false).is_none());
     assert!(LeastConnections::new(Vec::new()).next(false).is_none());
     assert!(LeastResponseTime::new(Vec::new()).next(false).is_none());
+    assert!(AdaptiveBalancing::new(Vec::new()).next(false).is_none());
+}
+
+#[test]
+fn adaptive_balancing_spreads_concurrent_cold_start_selections() {
+    let backends = vec![
+        test_node("1", 8081, 1),
+        test_node("2", 8082, 1),
+        test_node("3", 8083, 1),
+    ];
+    let lb = AdaptiveBalancing::new(backends);
+
+    let selected: Vec<String> = (0..3).map(|_| lb.next(false).unwrap().id.clone()).collect();
+
+    assert_eq!(selected, vec!["1", "2", "3"]);
+}
+
+#[test]
+fn adaptive_balancing_prefers_backend_that_meets_deadline() {
+    let fast = test_node("fast", 8081, 1);
+    let slow = test_node("slow", 8082, 1);
+    let lb = AdaptiveBalancing::with_deadline(
+        vec![fast.clone(), slow.clone()],
+        Duration::from_millis(100),
+    );
+
+    for _ in 0..8 {
+        lb.release(&fast, feedback(40, true));
+        lb.release(&slow, feedback(180, true));
+    }
+
+    let selected = lb.next(false).unwrap();
+    assert_eq!(selected.id, "fast");
+}
+
+#[test]
+fn adaptive_balancing_updates_when_backend_performance_changes() {
+    let first = test_node("first", 8081, 1);
+    let second = test_node("second", 8082, 1);
+    let lb = AdaptiveBalancing::with_deadline(
+        vec![first.clone(), second.clone()],
+        Duration::from_millis(100),
+    );
+
+    for _ in 0..8 {
+        lb.release(&first, feedback(40, true));
+        lb.release(&second, feedback(180, true));
+    }
+    assert_eq!(lb.next(false).unwrap().id, "first");
+
+    for _ in 0..16 {
+        lb.release(&first, feedback(180, true));
+        lb.release(&second, feedback(40, true));
+    }
+    assert_eq!(lb.next(false).unwrap().id, "second");
+}
+
+#[test]
+fn adaptive_balancing_treats_transport_failure_as_deadline_miss() {
+    let healthy = test_node("healthy", 8081, 1);
+    let failing = test_node("failing", 8082, 1);
+    let lb = AdaptiveBalancing::with_deadline(
+        vec![healthy.clone(), failing.clone()],
+        Duration::from_millis(100),
+    );
+
+    for _ in 0..8 {
+        lb.release(&healthy, feedback(80, true));
+        lb.release(&failing, feedback(5, false));
+    }
+
+    assert_eq!(lb.next(false).unwrap().id, "healthy");
 }

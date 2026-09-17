@@ -23,7 +23,7 @@ Options:
   -h, --help           Show this help
 
 Algorithms: round_robin, weighted_round_robin, least_connections,
-            least_response_time
+            least_response_time, adaptive_balancing
 Runtimes:   thread_pool, async
 "#;
 

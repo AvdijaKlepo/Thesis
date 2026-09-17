@@ -7,6 +7,7 @@ fn algorithm_kind_round_trips_through_its_name() {
         AlgorithmKind::WeightedRoundRobin,
         AlgorithmKind::LeastConnections,
         AlgorithmKind::LeastResponseTime,
+        AlgorithmKind::AdaptiveBalancing,
     ];
 
     for kind in kinds {

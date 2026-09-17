@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::algorithms::balancers::{
-    BackendNode, LeastConnections, LeastResponseTime, LoadBalancer, RoundRobin, WeightedRoundRobin,
+    AdaptiveBalancing, BackendNode, LeastConnections, LeastResponseTime, LoadBalancer, RoundRobin,
+    WeightedRoundRobin,
 };
 
 pub mod balancers;
@@ -13,6 +14,7 @@ pub enum AlgorithmKind {
     WeightedRoundRobin,
     LeastConnections,
     LeastResponseTime,
+    AdaptiveBalancing,
 }
 
 impl AlgorithmKind {
@@ -22,6 +24,7 @@ impl AlgorithmKind {
             "weighted_round_robin" => Some(Self::WeightedRoundRobin),
             "least_connections" => Some(Self::LeastConnections),
             "least_response_time" => Some(Self::LeastResponseTime),
+            "adaptive_balancing" => Some(Self::AdaptiveBalancing),
             _ => None,
         }
     }
@@ -32,6 +35,7 @@ impl AlgorithmKind {
             Self::WeightedRoundRobin => "weighted_round_robin",
             Self::LeastConnections => "least_connections",
             Self::LeastResponseTime => "least_response_time",
+            Self::AdaptiveBalancing => "adaptive_balancing",
         }
     }
 }
@@ -45,6 +49,7 @@ pub fn create_load_balancer_for(
         AlgorithmKind::WeightedRoundRobin => Box::new(WeightedRoundRobin::new(backends)),
         AlgorithmKind::LeastConnections => Box::new(LeastConnections::new(backends)),
         AlgorithmKind::LeastResponseTime => Box::new(LeastResponseTime::new(backends)),
+        AlgorithmKind::AdaptiveBalancing => Box::new(AdaptiveBalancing::new(backends)),
     }
 }
 

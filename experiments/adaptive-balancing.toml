@@ -1,0 +1,111 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/adaptive-balancing.toml
+schema_version = 1
+name = "adaptive-balancing"
+seed = 20260916
+repetitions = 3
+output_directory = "../results"
+algorithms = [
+    "round_robin",
+    "weighted_round_robin",
+    "least_connections",
+    "least_response_time",
+    "adaptive_balancing",
+]
+# Keep the first comparison focused on policy behavior. Runtime mode can be
+# added as a separate factor after the adaptive policy has a stable baseline.
+runtimes = ["async"]
+
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+[[scenarios]]
+id = "adaptive-load-shift"
+description = "Learn under moderate traffic, absorb a four-second overload burst across heterogeneous-latency backends, then observe allocation and tail-latency recovery."
+server_config = "../server/config/fixtures/variable-latency.toml"
+
+# Recreate the fixtures and proxy for every matrix cell so counters, seeded
+# latency sequences, connections, and adaptive state all begin cleanly.
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "variable-latency", "up", "--build", "--force-recreate",
+    "--wait", "--wait-timeout", "60",
+    "latency-fast", "latency-variable", "latency-slow",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose", "-p", "webserver-benchmark-{scenario}", "-f", "compose.fixtures.yml",
+    "--profile", "variable-latency", "down", "--timeout", "0",
+]
+working_directory = ".."
+
+# This workload establishes six seconds of feedback before the burst and then
+# continues through the post-burst settling window.
+[[scenarios.workloads]]
+id = "background-reads"
+requests = 1200
+concurrency = 16
+method = "GET"
+path = "/experiment"
+requests_per_second = 60.0
+jitter_ms = 2
+timeout_ms = 10000
+
+# Seconds 6-10 offer a combined 360 requests/s. That exceeds the fixture
+# profile's idealized aggregate capacity and should expose deadline misses,
+# queue growth, exploration cost, and recovery behavior.
+[[scenarios.workloads]]
+id = "overload-burst"
+requests = 1200
+concurrency = 96
+method = "GET"
+path = "/experiment"
+requests_per_second = 300.0
+jitter_ms = 2
+timeout_ms = 10000
+start_after_ms = 6000
+
+[[scenarios.collect]]
+id = "latency-fast-config"
+address = "127.0.0.1:5301"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "latency-fast-metrics"
+address = "127.0.0.1:5301"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency-variable-config"
+address = "127.0.0.1:5302"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "latency-variable-metrics"
+address = "127.0.0.1:5302"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "latency-slow-config"
+address = "127.0.0.1:5303"
+path = "/config"
+phases = ["before"]
+
+[[scenarios.collect]]
+id = "latency-slow-metrics"
+address = "127.0.0.1:5303"
+path = "/metrics"
+phases = ["before", "after"]
