@@ -7,7 +7,11 @@ use crate::algorithms::balancers::{
 
 pub use crate::algorithms::balancers::AdaptiveV2Settings;
 
+pub mod adaptive_v1;
+pub mod adaptive_v2;
 pub mod balancers;
+pub mod least_connections;
+pub mod round_robin;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
