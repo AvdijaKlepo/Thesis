@@ -380,16 +380,16 @@ mod linux {
         let total_ticks = values.iter().copied().sum::<u64>();
         let idle_ticks = values[3].saturating_add(values.get(4).copied().unwrap_or_default());
         let memory = fs::read_to_string("/proc/meminfo").map_err(|error| error.to_string())?;
-        let mut total_memory = None;
-        let mut available_memory = None;
+        let mut total_memory: Option<u64> = None;
+        let mut available_memory: Option<u64> = None;
         for line in memory.lines() {
             let mut parts = line.split_whitespace();
             match parts.next() {
                 Some("MemTotal:") => {
-                    total_memory = parts.next().and_then(|value| value.parse().ok())
+                    total_memory = parts.next().and_then(|value| value.parse::<u64>().ok())
                 }
                 Some("MemAvailable:") => {
-                    available_memory = parts.next().and_then(|value| value.parse().ok())
+                    available_memory = parts.next().and_then(|value| value.parse::<u64>().ok())
                 }
                 _ => {}
             }
