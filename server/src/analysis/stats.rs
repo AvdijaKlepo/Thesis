@@ -214,3 +214,4 @@ pub(crate) fn student_t_critical_95(degrees_of_freedom: usize) -> f64 {
         .copied()
         .unwrap_or(1.96)
 }
+

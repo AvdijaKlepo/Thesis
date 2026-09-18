@@ -627,3 +627,4 @@ fn optional_number(value: Option<f64>) -> String {
 fn format_number(value: f64) -> String {
     format!("{value:.6}")
 }
+

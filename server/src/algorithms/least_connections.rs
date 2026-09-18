@@ -74,3 +74,4 @@ impl LoadBalancer for LeastResponseTime {
         &self.backends
     }
 }
+
