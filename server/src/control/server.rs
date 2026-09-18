@@ -111,5 +111,5 @@ impl ControlServer {
     }
 }
 #[cfg(test)]
-#[path = "server_tests.rs"]
+#[path = "tests/server_tests.rs"]
 mod tests;

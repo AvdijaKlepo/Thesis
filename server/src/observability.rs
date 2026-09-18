@@ -429,5 +429,5 @@ pub struct ServiceMetricsSnapshot {
     pub adaptive_diagnostics: Option<AdaptiveDiagnosticSnapshot>,
 }
 #[cfg(test)]
-#[path = "observability_tests.rs"]
+#[path = "tests/observability_tests.rs"]
 mod tests;

@@ -565,5 +565,5 @@ fn respond_error(request: Request, status: u16, code: &str, message: impl Into<S
     );
 }
 #[cfg(test)]
-#[path = "dashboard_tests.rs"]
+#[path = "tests/dashboard_tests.rs"]
 mod tests;

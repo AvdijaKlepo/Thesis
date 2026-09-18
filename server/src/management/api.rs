@@ -717,5 +717,5 @@ impl From<ServiceRegistryError> for ApiError {
     }
 }
 #[cfg(test)]
-#[path = "api_tests.rs"]
+#[path = "tests/api_tests.rs"]
 mod tests;

@@ -282,5 +282,5 @@ pub fn proxy_connections(
     last_result
 }
 #[cfg(test)]
-#[path = "connection_tests.rs"]
+#[path = "tests/connection_tests.rs"]
 mod tests;

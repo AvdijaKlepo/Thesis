@@ -25,5 +25,5 @@ impl RuntimeMode {
     }
 }
 #[cfg(test)]
-#[path = "mode_tests.rs"]
+#[path = "tests/mode_tests.rs"]
 mod tests;

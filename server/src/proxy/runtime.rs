@@ -327,5 +327,5 @@ async fn write_client(client: &mut TcpStream, response: &[u8]) -> io::Result<()>
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "client write timed out"))?
 }
 #[cfg(test)]
-#[path = "runtime_tests.rs"]
+#[path = "tests/runtime_tests.rs"]
 mod tests;

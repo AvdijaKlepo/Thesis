@@ -286,5 +286,5 @@ pub(crate) fn unix_timestamp_ms() -> u64 {
         .min(u128::from(u64::MAX)) as u64
 }
 #[cfg(test)]
-#[path = "workload_tests.rs"]
+#[path = "tests/workload_tests.rs"]
 mod tests;

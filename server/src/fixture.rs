@@ -720,5 +720,5 @@ fn invalid(
     }
 }
 #[cfg(test)]
-#[path = "fixture_tests.rs"]
+#[path = "tests/fixture_tests.rs"]
 mod tests;

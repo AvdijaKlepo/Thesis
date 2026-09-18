@@ -124,5 +124,5 @@ impl HealthChecker {
     }
 }
 #[cfg(test)]
-#[path = "health_tests.rs"]
+#[path = "tests/health_tests.rs"]
 mod tests;

@@ -303,5 +303,5 @@ fn path_matches_prefix(path: &str, prefix: &str) -> bool {
             .is_some_and(|remainder| remainder.starts_with('/'))
 }
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "tests/service_tests.rs"]
 mod tests;

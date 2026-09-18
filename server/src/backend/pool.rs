@@ -364,5 +364,5 @@ fn validate_backends(backends: &[Backend]) -> Result<(), BackendPoolError> {
     Ok(())
 }
 #[cfg(test)]
-#[path = "pool_tests.rs"]
+#[path = "tests/pool_tests.rs"]
 mod tests;

@@ -148,5 +148,5 @@ fn content_type(path: &str) -> &'static str {
     }
 }
 #[cfg(test)]
-#[path = "static_file_tests.rs"]
+#[path = "tests/static_file_tests.rs"]
 mod tests;

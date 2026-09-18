@@ -368,5 +368,5 @@ fn invalid_data(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 #[cfg(test)]
-#[path = "protocol_tests.rs"]
+#[path = "tests/protocol_tests.rs"]
 mod tests;

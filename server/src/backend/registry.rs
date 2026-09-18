@@ -85,5 +85,5 @@ impl Default for BackendRegistry {
     }
 }
 #[cfg(test)]
-#[path = "registry_tests.rs"]
+#[path = "tests/registry_tests.rs"]
 mod tests;

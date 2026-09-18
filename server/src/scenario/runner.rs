@@ -1682,5 +1682,5 @@ fn write_json(path: PathBuf, value: &impl Serialize) -> Result<(), RunnerError> 
     Ok(())
 }
 #[cfg(test)]
-#[path = "runner_tests.rs"]
+#[path = "tests/runner_tests.rs"]
 mod tests;

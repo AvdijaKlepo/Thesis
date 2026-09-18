@@ -474,5 +474,5 @@ pub struct BackendSettings {
     pub weight: usize,
 }
 #[cfg(test)]
-#[path = "config_tests.rs"]
+#[path = "tests/config_tests.rs"]
 mod tests;

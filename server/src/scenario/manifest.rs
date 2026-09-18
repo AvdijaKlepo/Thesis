@@ -701,5 +701,5 @@ fn validate_id(label: &str, value: &str) -> Result<(), ManifestError> {
     Ok(())
 }
 #[cfg(test)]
-#[path = "manifest_tests.rs"]
+#[path = "tests/manifest_tests.rs"]
 mod tests;

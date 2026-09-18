@@ -822,5 +822,5 @@ impl LoadBalancer for LeastResponseTime {
     }
 }
 #[cfg(test)]
-#[path = "balancers_tests.rs"]
+#[path = "tests/balancers_tests.rs"]
 mod tests;

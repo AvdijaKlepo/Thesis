@@ -75,5 +75,5 @@ pub fn create_load_balancer_for_with_adaptive_v2_settings(
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "tests/mod_tests.rs"]
 mod tests;

@@ -743,5 +743,5 @@ fn backend_path(service_id: &str, backend_id: &str) -> Result<String, Management
     ))
 }
 #[cfg(test)]
-#[path = "management_tests.rs"]
+#[path = "tests/management_tests.rs"]
 mod tests;

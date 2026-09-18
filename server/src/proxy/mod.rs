@@ -8,6 +8,7 @@ pub mod protocol;
 pub mod runtime;
 
 #[cfg(test)]
+#[path = "tests/behavior_tests.rs"]
 mod behavior_tests;
 
 pub use health::{HealthCheckConfig, HealthChecker};

@@ -415,5 +415,5 @@ mod linux {
     }
 }
 #[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
-#[path = "resources_tests.rs"]
+#[path = "tests/resources_tests.rs"]
 mod tests;

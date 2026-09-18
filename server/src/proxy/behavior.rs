@@ -405,5 +405,5 @@ fn error_response(status: u16, reason: &str, message: &str) -> Vec<u8> {
     .into_bytes()
 }
 #[cfg(test)]
-#[path = "behavior_unit_tests.rs"]
+#[path = "tests/behavior_unit_tests.rs"]
 mod tests;
