@@ -19,6 +19,7 @@ version = "0.1.0"
 id = "retry-get"
 description = "GET workload against healthy, 35%-disconnecting, and always-disconnecting backends; compare permitted retry attempts and end-to-end success. No containers are stopped."
 server_config = "../server/config/fixtures/failure.toml"
+slo_target_ms = 200
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.

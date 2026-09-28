@@ -26,6 +26,7 @@ version = "0.1.0"
 id = "failure-recovery"
 description = "Stop and restore the healthy backend during a paced workload."
 server_config = "../server/config/fixtures/failure.toml"
+slo_target_ms = 100
 
 [[scenarios.setup]]
 command = "docker"

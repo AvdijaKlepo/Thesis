@@ -19,6 +19,7 @@ version = "0.1.0"
 id = "variable-latency"
 description = "Offer 100 requests/s to fast, seeded-variable, and slow backends; compare tail latency and adaptive allocation."
 server_config = "../server/config/fixtures/variable-latency.toml"
+slo_target_ms = 200
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.

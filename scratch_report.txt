@@ -1,0 +1,702 @@
+################################################################################
+PAIR 1: equal-capacity.toml & equal-capacity-12.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: equal-capacity.toml | RESULTS: equal-capacity-1790260808114
+--------------------------------------------------------------------------------
+Name: equal-capacity
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: equal-capacity
+  Description: Steady 60 requests/s baseline on three identical backends; compare allocation fairness and latency without deliberate saturation.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity.toml
+  Server Backends Configured: 0
+  Workload: id=steady-reads, method=GET, path=/experiment, requests=600, rps=60.0, concurrency=16, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  equal-capacity | least_connections | async | 3 | 59.69 | 57.52 | 82.16 | 84.90 | 0.00% | 0.9304 | 0.9304 | 1.93% | 5.99 MB |  | 100.0% | 617.7
+  equal-capacity | least_connections | thread_pool | 3 | 59.79 | 52.25 | 52.84 | 53.91 | 0.00% | 0.8902 | 0.8902 | 1.15% | 5.64 MB |  | 100.0% | 623.5
+  equal-capacity | least_response_time | async | 3 | 59.75 | 62.71 | 83.19 | 85.41 | 0.00% | 0.9986 | 0.9986 | 1.93% | 5.99 MB |  | 99.6% | 631.4
+  equal-capacity | least_response_time | thread_pool | 3 | 59.79 | 52.25 | 52.99 | 53.90 | 0.00% | 0.9951 | 0.9951 | 1.42% | 5.63 MB |  | 100.0% | 626.1
+  equal-capacity | round_robin | async | 3 | 59.73 | 59.56 | 82.83 | 87.54 | 0.00% | 1.0000 | 1.0000 | 1.46% | 5.92 MB |  | 99.9% | 611.5
+  equal-capacity | round_robin | thread_pool | 3 | 59.78 | 52.25 | 52.86 | 54.24 | 0.00% | 1.0000 | 1.0000 | 1.05% | 5.64 MB |  | 100.0% | 613.1
+  equal-capacity | weighted_round_robin | async | 3 | 59.78 | 61.32 | 83.51 | 90.47 | 0.00% | 1.0000 | 1.0000 | 2.52% | 5.96 MB |  | 99.7% | 624.4
+  equal-capacity | weighted_round_robin | thread_pool | 3 | 59.79 | 52.25 | 53.07 | 54.08 | 0.00% | 1.0000 | 1.0000 | 0.58% | 5.63 MB |  | 100.0% | 622.4
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    equal-capacity | round_robin | thread_pool | backend=equal-1 | reqs=None | share=None
+    equal-capacity | round_robin | thread_pool | backend=equal-2 | reqs=None | share=None
+    equal-capacity | round_robin | thread_pool | backend=equal-3 | reqs=None | share=None
+    equal-capacity | round_robin | thread_pool | backend=equal-1 | reqs=None | share=None
+    equal-capacity | round_robin | thread_pool | backend=equal-2 | reqs=None | share=None
+    equal-capacity | round_robin | thread_pool | backend=equal-3 | reqs=None | share=None
+    ... and 66 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: equal-capacity-12.toml | RESULTS: equal-capacity-12-1790261394976
+--------------------------------------------------------------------------------
+Name: equal-capacity-12
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: equal-capacity-12
+  Description: Twelve identical unit-capacity backends at a controlled medium load.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity-12.toml
+  Server Backends Configured: 0
+  Workload: id=steady-reads, method=GET, path=/experiment, requests=1800, rps=180.0, concurrency=96, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  equal-capacity-12 | least_connections | async | 5 | 178.79 | 63.42 | 89.23 | 108.80 | 0.00% | 0.9802 | 0.9802 | 6.47% | 6.68 MB |  | 97.9% | 576.0
+  equal-capacity-12 | least_connections | thread_pool | 5 | 179.17 | 51.95 | 52.44 | 55.48 | 0.00% | 0.8383 | 0.8383 | 3.18% | 5.81 MB |  | 100.0% | 557.0
+  equal-capacity-12 | least_response_time | async | 5 | 178.89 | 62.41 | 86.76 | 103.02 | 0.00% | 0.9986 | 0.9986 | 5.23% | 6.67 MB |  | 98.6% | 579.5
+  equal-capacity-12 | least_response_time | thread_pool | 5 | 179.17 | 51.95 | 52.42 | 54.70 | 0.00% | 0.9282 | 0.9282 | 3.14% | 5.76 MB |  | 100.0% | 555.4
+  equal-capacity-12 | round_robin | async | 5 | 179.06 | 61.15 | 80.80 | 88.20 | 0.00% | 1.0000 | 1.0000 | 5.11% | 6.74 MB |  | 100.0% | 578.4
+  equal-capacity-12 | round_robin | thread_pool | 5 | 179.17 | 51.95 | 52.43 | 54.80 | 0.00% | 1.0000 | 1.0000 | 3.77% | 5.75 MB |  | 100.0% | 553.6
+  equal-capacity-12 | weighted_round_robin | async | 5 | 178.93 | 61.77 | 81.16 | 87.96 | 0.00% | 1.0000 | 1.0000 | 5.70% | 6.72 MB |  | 100.0% | 580.6
+  equal-capacity-12 | weighted_round_robin | thread_pool | 5 | 179.17 | 51.95 | 52.47 | 55.65 | 0.00% | 1.0000 | 1.0000 | 2.96% | 5.77 MB |  | 100.0% | 554.6
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    equal-capacity-12 | round_robin | thread_pool | backend=equal12-1 | reqs=None | share=None
+    equal-capacity-12 | round_robin | thread_pool | backend=equal12-10 | reqs=None | share=None
+    equal-capacity-12 | round_robin | thread_pool | backend=equal12-11 | reqs=None | share=None
+    equal-capacity-12 | round_robin | thread_pool | backend=equal12-12 | reqs=None | share=None
+    equal-capacity-12 | round_robin | thread_pool | backend=equal12-2 | reqs=None | share=None
+    equal-capacity-12 | round_robin | thread_pool | backend=equal12-3 | reqs=None | share=None
+    ... and 474 more backend records
+
+
+################################################################################
+PAIR 2: heterogeneous-capacity.toml & heterogeneous-capacity-13.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: heterogeneous-capacity.toml | RESULTS: heterogeneous-capacity-1790262688824
+--------------------------------------------------------------------------------
+Name: heterogeneous-capacity
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: heterogeneous-capacity
+  Description: Offer 160 requests/s to capacities 1:4:8 with matching weights; observe small-backend queueing and capacity-adjusted fairness.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/heterogeneous.toml
+  Server Backends Configured: 0
+  Workload: id=steady-reads, method=GET, path=/experiment, requests=1600, rps=160.0, concurrency=64, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  heterogeneous-capacity | least_connections | async | 3 | 156.43 | 67.17 | 265.22 | 293.25 | 0.00% | 0.8387 | 0.9046 | 3.65% | 6.54 MB |  | 87.2% | 588.7
+  heterogeneous-capacity | least_connections | thread_pool | 3 | 157.29 | 52.05 | 199.40 | 207.01 | 0.00% | 0.8382 | 0.9087 | 2.88% | 5.74 MB |  | 87.5% | 563.4
+  heterogeneous-capacity | least_response_time | async | 3 | 158.77 | 64.75 | 117.85 | 150.56 | 0.00% | 0.8360 | 0.9159 | 4.87% | 6.59 MB |  | 90.4% | 589.4
+  heterogeneous-capacity | least_response_time | thread_pool | 3 | 158.91 | 52.05 | 98.54 | 100.83 | 0.00% | 0.8363 | 0.9114 | 2.13% | 5.74 MB |  | 97.4% | 569.4
+  heterogeneous-capacity | round_robin | async | 3 | 59.19 | 58.94 | 3132.99 | 3138.45 | 0.00% | 1.0000 | 0.5841 | 5.85% | 7.31 MB |  | 66.8% | 13071653.2
+  heterogeneous-capacity | round_robin | thread_pool | 3 | 59.13 | 867.95 | 1515.62 | 1518.72 | 0.00% | 1.0000 | 0.5841 | 6.82% | 5.87 MB |  | 2.7% | 14724954.2
+  heterogeneous-capacity | weighted_round_robin | async | 3 | 159.18 | 62.29 | 82.13 | 88.73 | 0.00% | 0.6952 | 1.0000 | 4.72% | 6.53 MB |  | 99.9% | 582.4
+  heterogeneous-capacity | weighted_round_robin | thread_pool | 3 | 159.28 | 52.05 | 52.92 | 55.17 | 0.00% | 0.6952 | 1.0000 | 2.81% | 5.73 MB |  | 100.0% | 564.4
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    heterogeneous-capacity | round_robin | thread_pool | backend=heterogeneous-large | reqs=None | share=None
+    heterogeneous-capacity | round_robin | thread_pool | backend=heterogeneous-medium | reqs=None | share=None
+    heterogeneous-capacity | round_robin | thread_pool | backend=heterogeneous-small | reqs=None | share=None
+    heterogeneous-capacity | round_robin | thread_pool | backend=heterogeneous-large | reqs=None | share=None
+    heterogeneous-capacity | round_robin | thread_pool | backend=heterogeneous-medium | reqs=None | share=None
+    heterogeneous-capacity | round_robin | thread_pool | backend=heterogeneous-small | reqs=None | share=None
+    ... and 66 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: heterogeneous-capacity-13.toml | RESULTS: heterogeneous-capacity-13-1790263344219
+--------------------------------------------------------------------------------
+Name: heterogeneous-capacity-13
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: heterogeneous-capacity-13
+  Description: Thirteen unit-capacity replicas arranged as 1, 4, and 8 backend cohorts.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/heterogeneous-replicas-13.toml
+  Server Backends Configured: 0
+  Workload: id=steady-reads, method=GET, path=/experiment, requests=2400, rps=240.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  heterogeneous-capacity-13 | least_connections | async | 5 | 237.86 | 82.76 | 111.76 | 121.67 | 0.00% | 0.9927 | 0.9927 | 7.59% | 6.95 MB |  | 80.0% | 574.4
+  heterogeneous-capacity-13 | least_connections | thread_pool | 5 | 238.86 | 51.82 | 55.13 | 84.90 | 0.00% | 0.9999 | 0.9999 | 4.36% | 5.85 MB |  | 99.8% | 545.4
+  heterogeneous-capacity-13 | least_response_time | async | 5 | 237.90 | 79.69 | 111.67 | 122.29 | 0.00% | 0.9999 | 0.9999 | 6.25% | 7.02 MB |  | 82.1% | 567.4
+  heterogeneous-capacity-13 | least_response_time | thread_pool | 5 | 238.22 | 51.89 | 98.52 | 99.83 | 0.00% | 1.0000 | 1.0000 | 4.14% | 5.89 MB |  | 99.3% | 550.2
+  heterogeneous-capacity-13 | round_robin | async | 5 | 238.59 | 65.88 | 83.87 | 91.04 | 0.00% | 1.0000 | 1.0000 | 6.41% | 7.11 MB |  | 99.8% | 578.4
+  heterogeneous-capacity-13 | round_robin | thread_pool | 5 | 238.86 | 51.83 | 52.51 | 56.71 | 0.00% | 1.0000 | 1.0000 | 3.52% | 5.80 MB |  | 100.0% | 546.4
+  heterogeneous-capacity-13 | weighted_round_robin | async | 5 | 238.59 | 65.49 | 82.88 | 89.18 | 0.00% | 1.0000 | 1.0000 | 6.81% | 6.96 MB |  | 100.0% | 568.9
+  heterogeneous-capacity-13 | weighted_round_robin | thread_pool | 5 | 238.86 | 51.82 | 52.99 | 62.78 | 0.00% | 1.0000 | 1.0000 | 3.87% | 5.81 MB |  | 100.0% | 552.2
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    heterogeneous-capacity-13 | least_response_time | thread_pool | backend=heterogeneous13-large-1 | reqs=None | share=None
+    heterogeneous-capacity-13 | least_response_time | thread_pool | backend=heterogeneous13-large-2 | reqs=None | share=None
+    heterogeneous-capacity-13 | least_response_time | thread_pool | backend=heterogeneous13-large-3 | reqs=None | share=None
+    heterogeneous-capacity-13 | least_response_time | thread_pool | backend=heterogeneous13-large-4 | reqs=None | share=None
+    heterogeneous-capacity-13 | least_response_time | thread_pool | backend=heterogeneous13-large-5 | reqs=None | share=None
+    heterogeneous-capacity-13 | least_response_time | thread_pool | backend=heterogeneous13-large-6 | reqs=None | share=None
+    ... and 514 more backend records
+
+
+################################################################################
+PAIR 3: failure-recovery.toml & failure-recovery-12.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: failure-recovery.toml | RESULTS: failure-recovery-1790264595133
+--------------------------------------------------------------------------------
+Name: failure-recovery
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: failure-recovery
+  Description: Stop and restore the healthy backend during a paced workload.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/failure.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=1200, rps=150.0, concurrency=32, jitter_ms=2, timeout_ms=5000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  failure-recovery | least_connections | async | 3 | 106.84 | 204.16 | 499.10 | 2250.46 | 3.97% | 0.9878 | 0.9878 | 7.15% | 7.10 MB | 437.516333 | 10.8% | 2994499.9
+  failure-recovery | least_connections | thread_pool | 3 | 106.24 | 213.24 | 474.73 | 2317.58 | 3.25% | 0.9883 | 0.9883 | 7.13% | 6.03 MB | 471.392667 | 11.8% | 3028256.9
+  failure-recovery | least_response_time | async | 3 | 98.92 | 296.82 | 489.02 | 2177.54 | 4.14% | 0.7727 | 0.7727 | 6.55% | 6.84 MB | 388.557333 | 14.4% | 3743315.5
+  failure-recovery | least_response_time | thread_pool | 3 | 83.36 | 323.19 | 486.75 | 2429.68 | 4.00% | 0.5536 | 0.5536 | 5.36% | 6.20 MB | 486.282333 | 1.9% | 5881862.3
+  failure-recovery | round_robin | async | 3 | 102.36 | 220.01 | 517.05 | 2229.98 | 3.11% | 0.9762 | 0.9762 | 6.83% | 6.97 MB | 371.015000 | 32.8% | 3266045.8
+  failure-recovery | round_robin | thread_pool | 3 | 100.19 | 224.08 | 485.69 | 2394.89 | 3.39% | 0.9795 | 0.9795 | 6.99% | 6.07 MB | 801.432000 | 5.7% | 3688716.7
+  failure-recovery | weighted_round_robin | async | 3 | 101.69 | 231.42 | 511.39 | 2297.34 | 3.08% | 0.9760 | 0.9760 | 7.62% | 7.02 MB | 408.259333 | 36.8% | 3384045.1
+  failure-recovery | weighted_round_robin | thread_pool | 3 | 100.26 | 227.05 | 489.97 | 2385.30 | 3.44% | 0.9765 | 0.9765 | 5.32% | 6.07 MB | 453.662000 | 6.4% | 3632446.5
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+    0001-failure-recovery-round_robin-thread_pool-r001-s7319458439437240141,failure-recovery,round_robin,thread_pool,restore-healthy-backend,failure-healthy,4500.438000,10407.295000,4954.978000,454.540000,4954.978000,454.540000,5
+    0002-failure-recovery-round_robin-thread_pool-r002-s12842956860951384126,failure-recovery,round_robin,thread_pool,restore-healthy-backend,failure-healthy,4500.759000,10389.942000,6003.644000,1502.885000,6003.644000,1502.885000,5
+    0003-failure-recovery-round_robin-thread_pool-r003-s6171462789792482725,failure-recovery,round_robin,thread_pool,restore-healthy-backend,failure-healthy,4500.703000,10367.824000,4947.574000,446.871000,4947.574000,446.871000,5
+    0004-failure-recovery-round_robin-async-r001-s6455806591316861048,failure-recovery,round_robin,async,restore-healthy-backend,failure-healthy,4500.705000,10335.465000,4887.244000,386.539000,4887.244000,386.539000,5
+    0005-failure-recovery-round_robin-async-r002-s15973862043444013615,failure-recovery,round_robin,async,restore-healthy-backend,failure-healthy,4500.347000,10307.007000,4853.047000,352.700000,4853.047000,352.700000,5
+    0006-failure-recovery-round_robin-async-r003-s10898717082604031643,failure-recovery,round_robin,async,restore-healthy-backend,failure-healthy,4500.998000,10337.208000,4874.804000,373.806000,4874.804000,373.806000,5
+    0007-failure-recovery-weighted_round_robin-thread_pool-r001-s6758522052171883176,failure-recovery,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy,4500.685000,10366.863000,4930.637000,429.952000,4930.637000,429.952000,5
+    0008-failure-recovery-weighted_round_robin-thread_pool-r002-s10541779201068931610,failure-recovery,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy,4500.696000,10420.802000,4996.202000,495.506000,4996.202000,495.506000,5
+    0009-failure-recovery-weighted_round_robin-thread_pool-r003-s9340713307446557163,failure-recovery,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy,4500.849000,10365.083000,4936.377000,435.528000,4936.377000,435.528000,5
+    0010-failure-recovery-weighted_round_robin-async-r001-s11160405835942450880,failure-recovery,weighted_round_robin,async,restore-healthy-backend,failure-healthy,4500.696000,10362.578000,4903.620000,402.924000,4903.620000,402.924000,5
+    0011-failure-recovery-weighted_round_robin-async-r002-s1254572817104951485,failure-recovery,weighted_round_robin,async,restore-healthy-backend,failure-healthy,4500.834000,10377.958000,4916.601000,415.767000,4916.601000,415.767000,5
+    0012-failure-recovery-weighted_round_robin-async-r003-s3778583782436788066,failure-recovery,weighted_round_robin,async,restore-healthy-backend,failure-healthy,4500.760000,10381.139000,4906.847000,406.087000,4906.847000,406.087000,5
+    0013-failure-recovery-least_connections-thread_pool-r001-s12453626992350882289,failure-recovery,least_connections,thread_pool,restore-healthy-backend,failure-healthy,4500.381000,10321.110000,4885.008000,384.627000,4885.008000,384.627000,5
+    0014-failure-recovery-least_connections-thread_pool-r002-s3870077627689004052,failure-recovery,least_connections,thread_pool,restore-healthy-backend,failure-healthy,4500.564000,10404.556000,5058.579000,558.015000,5058.579000,558.015000,5
+    0015-failure-recovery-least_connections-thread_pool-r003-s1583899033826912989,failure-recovery,least_connections,thread_pool,restore-healthy-backend,failure-healthy,4500.641000,10359.283000,4972.177000,471.536000,4972.177000,471.536000,5
+    0016-failure-recovery-least_connections-async-r001-s15013206706709065353,failure-recovery,least_connections,async,restore-healthy-backend,failure-healthy,4500.578000,10355.740000,4933.497000,432.919000,4933.497000,432.919000,5
+    0017-failure-recovery-least_connections-async-r002-s4527919225044411279,failure-recovery,least_connections,async,restore-healthy-backend,failure-healthy,4500.586000,10355.949000,4962.432000,461.846000,4962.432000,461.846000,5
+    0018-failure-recovery-least_connections-async-r003-s3434682815852734206,failure-recovery,least_connections,async,restore-healthy-backend,failure-healthy,4500.544000,10309.696000,4918.328000,417.784000,4918.328000,417.784000,5
+    0019-failure-recovery-least_response_time-thread_pool-r001-s1229622900582288776,failure-recovery,least_response_time,thread_pool,restore-healthy-backend,failure-healthy,4500.612000,10406.317000,5014.253000,513.641000,5014.253000,513.641000,5
+    0020-failure-recovery-least_response_time-thread_pool-r002-s5200079604948895444,failure-recovery,least_response_time,thread_pool,restore-healthy-backend,failure-healthy,4500.779000,10374.536000,5047.636000,546.857000,5047.636000,546.857000,5
+    0021-failure-recovery-least_response_time-thread_pool-r003-s1931136021876531247,failure-recovery,least_response_time,thread_pool,restore-healthy-backend,failure-healthy,4500.771000,10368.815000,4899.120000,398.349000,4899.120000,398.349000,5
+    0022-failure-recovery-least_response_time-async-r001-s4893961851267638265,failure-recovery,least_response_time,async,restore-healthy-backend,failure-healthy,4500.495000,10351.597000,4884.426000,383.931000,4884.426000,383.931000,5
+    0023-failure-recovery-least_response_time-async-r002-s14049225683729530186,failure-recovery,least_response_time,async,restore-healthy-backend,failure-healthy,4500.491000,10362.284000,4896.390000,395.899000,4896.390000,395.899000,5
+    0024-failure-recovery-least_response_time-async-r003-s9541316357990714214,failure-recovery,least_response_time,async,restore-healthy-backend,failure-healthy,4500.202000,10322.652000,4886.044000,385.842000,4886.044000,385.842000,5
+
+  BACKEND FAIRNESS SAMPLE:
+    failure-recovery | round_robin | thread_pool | backend=failure-always | reqs=None | share=None
+    failure-recovery | round_robin | thread_pool | backend=failure-flaky | reqs=None | share=None
+    failure-recovery | round_robin | thread_pool | backend=failure-healthy | reqs=None | share=None
+    failure-recovery | round_robin | thread_pool | backend=failure-always | reqs=None | share=None
+    failure-recovery | round_robin | thread_pool | backend=failure-flaky | reqs=None | share=None
+    failure-recovery | round_robin | thread_pool | backend=failure-healthy | reqs=None | share=None
+    ... and 66 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: failure-recovery-12.toml | RESULTS: failure-recovery-12-1790266625242
+--------------------------------------------------------------------------------
+Name: failure-recovery-12
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: failure-recovery-12
+  Description: Stop and restore healthy backends during a paced workload across a 12-backend pool.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/failure-12.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=1200, rps=150.0, concurrency=32, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  failure-recovery-12 | least_connections | async | 5 | 131.53 | 147.64 | 384.72 | 1229.95 | 21.53% | 0.9737 | 0.9737 | 8.60% | 6.99 MB | 966.693600 | 17.0% | 1153552.9
+  failure-recovery-12 | least_connections | thread_pool | 5 | 123.55 | 194.03 | 391.36 | 823.61 | 16.42% | 0.9767 | 0.9767 | 6.45% | 6.14 MB | 1205.852800 | 16.0% | 1504145.8
+  failure-recovery-12 | least_response_time | async | 5 | 101.07 | 328.28 | 555.06 | 910.61 | 16.35% | 0.6704 | 0.6704 | 7.67% | 6.94 MB | 752.946200 | 5.3% | 3318046.9
+  failure-recovery-12 | least_response_time | thread_pool | 5 | 68.67 | 507.11 | 631.86 | 890.69 | 4.90% | 0.4755 | 0.4755 | 4.52% | 5.99 MB | 940.548333 | 1.3% | 8764657.8
+  failure-recovery-12 | round_robin | async | 5 | 96.76 | 177.04 | 839.26 | 2293.62 | 9.22% | 0.9949 | 0.9949 | 7.83% | 6.89 MB | 788.015600 | 31.2% | 3569641.8
+  failure-recovery-12 | round_robin | thread_pool | 5 | 91.06 | 254.78 | 582.28 | 2415.00 | 8.65% | 0.9924 | 0.9924 | 6.35% | 6.14 MB | 943.165000 | 3.1% | 4643406.9
+  failure-recovery-12 | weighted_round_robin | async | 5 | 99.99 | 185.52 | 761.92 | 2291.34 | 9.05% | 0.9967 | 0.9967 | 6.77% | 6.91 MB | 767.454600 | 34.8% | 3406198.7
+  failure-recovery-12 | weighted_round_robin | thread_pool | 5 | 94.90 | 243.00 | 540.93 | 2505.91 | 8.00% | 0.9973 | 0.9973 | 6.64% | 6.13 MB | 716.493400 | 4.1% | 4212617.4
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+    0001-failure-recovery-12-least_connections-thread_pool-r001-s3102635616620871914,failure-recovery-12,least_connections,thread_pool,restore-healthy-backend,failure-healthy-1,4500.412000,10991.979000,5920.425000,1420.013000,5920.425000,1420.013000,5
+    0002-failure-recovery-12-round_robin-thread_pool-r001-s12686263836678159339,failure-recovery-12,round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.533000,10894.206000,5297.788000,797.255000,5297.788000,797.255000,5
+    0003-failure-recovery-12-weighted_round_robin-thread_pool-r001-s9335214570729766668,failure-recovery-12,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.463000,10995.473000,5096.837000,596.374000,5096.837000,596.374000,5
+    0004-failure-recovery-12-least_response_time-thread_pool-r001-s5020453084499817163,failure-recovery-12,least_response_time,thread_pool,restore-healthy-backend,failure-healthy-1,4500.257000,10944.214000,5448.810000,948.553000,5448.810000,948.553000,5
+    0005-failure-recovery-12-least_connections-thread_pool-r002-s3937968396508282195,failure-recovery-12,least_connections,thread_pool,restore-healthy-backend,failure-healthy-1,4500.180000,10981.875000,5824.824000,1324.644000,5824.824000,1324.644000,5
+    0006-failure-recovery-12-weighted_round_robin-thread_pool-r002-s17347726526313406440,failure-recovery-12,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.512000,10974.426000,5201.170000,700.658000,5201.170000,700.658000,5
+    0007-failure-recovery-12-round_robin-thread_pool-r002-s3436670988401488628,failure-recovery-12,round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.421000,10927.971000,5491.574000,991.153000,5491.574000,991.153000,5
+    0008-failure-recovery-12-least_response_time-thread_pool-r002-s497051188813059660,failure-recovery-12,least_response_time,thread_pool,restore-healthy-backend,failure-healthy-1,4500.191000,10914.863000,5447.767000,947.576000,5447.767000,947.576000,5
+    0009-failure-recovery-12-least_response_time-thread_pool-r003-s2148780397423629526,failure-recovery-12,least_response_time,thread_pool,restore-healthy-backend,failure-healthy-1,4500.319000,10944.341000,5608.427000,1108.108000,,,5
+    0010-failure-recovery-12-round_robin-thread_pool-r003-s16463613053784750236,failure-recovery-12,round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.705000,11007.927000,5544.770000,1044.065000,5544.770000,1044.065000,5
+    0011-failure-recovery-12-weighted_round_robin-thread_pool-r003-s10250453327125031345,failure-recovery-12,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4502.531000,11016.507000,5598.760000,1096.229000,5598.760000,1096.229000,5
+    0012-failure-recovery-12-least_connections-thread_pool-r003-s8891471473148692968,failure-recovery-12,least_connections,thread_pool,restore-healthy-backend,failure-healthy-1,4500.449000,11007.380000,5619.985000,1119.536000,5619.985000,1119.536000,5
+    0013-failure-recovery-12-round_robin-thread_pool-r004-s9363347261730127995,failure-recovery-12,round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.258000,10908.641000,5376.807000,876.549000,5376.807000,876.549000,5
+    0014-failure-recovery-12-least_response_time-thread_pool-r004-s15409037696101304975,failure-recovery-12,least_response_time,thread_pool,restore-healthy-backend,failure-healthy-1,4500.477000,10924.677000,5425.993000,925.516000,5425.993000,925.516000,5
+    0015-failure-recovery-12-weighted_round_robin-thread_pool-r004-s12207844264725978563,failure-recovery-12,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.566000,10921.922000,5165.721000,665.155000,5165.721000,665.155000,5
+    0016-failure-recovery-12-least_connections-thread_pool-r004-s1229635858099523650,failure-recovery-12,least_connections,thread_pool,restore-healthy-backend,failure-healthy-1,4500.405000,10961.482000,5660.115000,1159.710000,5660.115000,1159.710000,5
+    0017-failure-recovery-12-least_response_time-thread_pool-r005-s16784335110943485933,failure-recovery-12,least_response_time,thread_pool,restore-healthy-backend,failure-healthy-1,4500.464000,10942.973000,5586.940000,1086.476000,,,5
+    0018-failure-recovery-12-round_robin-thread_pool-r005-s7562511061321356784,failure-recovery-12,round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4501.007000,10949.709000,5507.810000,1006.803000,5507.810000,1006.803000,5
+    0019-failure-recovery-12-least_connections-thread_pool-r005-s11954914659496148826,failure-recovery-12,least_connections,thread_pool,restore-healthy-backend,failure-healthy-1,4500.211000,10998.461000,5505.572000,1005.361000,5505.572000,1005.361000,5
+    0020-failure-recovery-12-weighted_round_robin-thread_pool-r005-s18199461942245342143,failure-recovery-12,weighted_round_robin,thread_pool,restore-healthy-backend,failure-healthy-1,4500.344000,11102.582000,5024.395000,524.051000,5024.395000,524.051000,5
+    0021-failure-recovery-12-least_connections-async-r001-s1673531014488457470,failure-recovery-12,least_connections,async,restore-healthy-backend,failure-healthy-1,4500.222000,10990.890000,5154.383000,654.161000,5154.383000,654.161000,5
+    0022-failure-recovery-12-weighted_round_robin-async-r001-s13656305903480761868,failure-recovery-12,weighted_round_robin,async,restore-healthy-backend,failure-healthy-1,4500.548000,11031.576000,5194.192000,693.644000,5194.192000,693.644000,5
+    0023-failure-recovery-12-round_robin-async-r001-s18293344187058692782,failure-recovery-12,round_robin,async,restore-healthy-backend,failure-healthy-1,4500.543000,10988.328000,5511.551000,1011.008000,5511.551000,1011.008000,5
+    0024-failure-recovery-12-least_response_time-async-r001-s9088683680960281957,failure-recovery-12,least_response_time,async,restore-healthy-backend,failure-healthy-1,4500.257000,10950.505000,5263.051000,762.794000,5263.051000,762.794000,5
+    0025-failure-recovery-12-round_robin-async-r002-s11186008033173864243,failure-recovery-12,round_robin,async,restore-healthy-backend,failure-healthy-1,4500.695000,10959.404000,5153.517000,652.822000,5153.517000,652.822000,5
+    0026-failure-recovery-12-least_connections-async-r002-s818371002528116870,failure-recovery-12,least_connections,async,restore-healthy-backend,failure-healthy-1,4500.193000,10984.257000,5455.209000,955.016000,5455.209000,955.016000,5
+    0027-failure-recovery-12-least_response_time-async-r002-s12959472583337082982,failure-recovery-12,least_response_time,async,restore-healthy-backend,failure-healthy-1,4500.148000,10963.215000,5495.399000,995.251000,5495.399000,995.251000,5
+    0028-failure-recovery-12-weighted_round_robin-async-r002-s13785601689992272863,failure-recovery-12,weighted_round_robin,async,restore-healthy-backend,failure-healthy-1,4500.521000,10960.425000,5499.116000,998.595000,5499.116000,998.595000,5
+    0029-failure-recovery-12-round_robin-async-r003-s2393524233031970655,failure-recovery-12,round_robin,async,restore-healthy-backend,failure-healthy-1,4500.278000,10948.514000,5002.926000,502.648000,5002.926000,502.648000,5
+    0030-failure-recovery-12-least_response_time-async-r003-s12602032623849474607,failure-recovery-12,least_response_time,async,restore-healthy-backend,failure-healthy-1,4500.490000,10947.434000,5246.492000,746.002000,5246.492000,746.002000,5
+    0031-failure-recovery-12-least_connections-async-r003-s1027468495129385937,failure-recovery-12,least_connections,async,restore-healthy-backend,failure-healthy-1,4500.420000,10984.994000,5351.803000,851.383000,5351.803000,851.383000,5
+    0032-failure-recovery-12-weighted_round_robin-async-r003-s6508530658662863547,failure-recovery-12,weighted_round_robin,async,restore-healthy-backend,failure-healthy-1,4500.396000,11013.246000,5122.384000,621.988000,5122.384000,621.988000,5
+    0033-failure-recovery-12-round_robin-async-r004-s15581558400182384308,failure-recovery-12,round_robin,async,restore-healthy-backend,failure-healthy-1,4500.517000,11106.624000,5459.064000,958.547000,5459.064000,958.547000,5
+    0034-failure-recovery-12-least_response_time-async-r004-s17287277807765034925,failure-recovery-12,least_response_time,async,restore-healthy-backend,failure-healthy-1,4500.278000,10947.747000,5227.176000,726.898000,5227.176000,726.898000,5
+    0035-failure-recovery-12-least_connections-async-r004-s13850436273965385807,failure-recovery-12,least_connections,async,restore-healthy-backend,failure-healthy-1,4500.070000,11006.017000,5939.785000,1439.715000,5939.785000,1439.715000,5
+    0036-failure-recovery-12-weighted_round_robin-async-r004-s16158377428072641290,failure-recovery-12,weighted_round_robin,async,restore-healthy-backend,failure-healthy-1,4500.342000,10978.039000,5541.248000,1040.906000,5541.248000,1040.906000,5
+    0037-failure-recovery-12-least_connections-async-r005-s3879925517103976971,failure-recovery-12,least_connections,async,restore-healthy-backend,failure-healthy-1,4500.406000,11117.418000,5433.599000,933.193000,5433.599000,933.193000,5
+    0038-failure-recovery-12-weighted_round_robin-async-r005-s8481398473449318338,failure-recovery-12,weighted_round_robin,async,restore-healthy-backend,failure-healthy-1,4500.323000,10992.887000,4982.463000,482.140000,4982.463000,482.140000,5
+    0039-failure-recovery-12-round_robin-async-r005-s17484971064889862573,failure-recovery-12,round_robin,async,restore-healthy-backend,failure-healthy-1,4500.660000,10954.471000,5315.713000,815.053000,5315.713000,815.053000,5
+    0040-failure-recovery-12-least_response_time-async-r005-s8485147010757595567,failure-recovery-12,least_response_time,async,restore-healthy-backend,failure-healthy-1,4500.669000,10917.547000,5034.455000,533.786000,5034.455000,533.786000,5
+
+  BACKEND FAIRNESS SAMPLE:
+    failure-recovery-12 | least_connections | thread_pool | backend=failure-always-1 | reqs=None | share=None
+    failure-recovery-12 | least_connections | thread_pool | backend=failure-always-2 | reqs=None | share=None
+    failure-recovery-12 | least_connections | thread_pool | backend=failure-always-3 | reqs=None | share=None
+    failure-recovery-12 | least_connections | thread_pool | backend=failure-always-4 | reqs=None | share=None
+    failure-recovery-12 | least_connections | thread_pool | backend=failure-flaky-1 | reqs=None | share=None
+    failure-recovery-12 | least_connections | thread_pool | backend=failure-flaky-2 | reqs=None | share=None
+    ... and 474 more backend records
+
+
+################################################################################
+PAIR 4: variable-latency.toml & variable-latency-12.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: variable-latency.toml | RESULTS: variable-latency-1790268003146
+--------------------------------------------------------------------------------
+Name: variable-latency
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: variable-latency
+  Description: Offer 100 requests/s to fast, seeded-variable, and slow backends; compare tail latency and adaptive allocation.
+  SLO Target: 200 ms
+  Server Config: ../server/config/fixtures/variable-latency.toml
+  Server Backends Configured: 0
+  Workload: id=steady-reads, method=GET, path=/experiment, requests=1000, rps=100.0, concurrency=64, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  variable-latency | least_connections | async | 3 | 98.60 | 43.64 | 162.64 | 178.42 | 0.00% | 0.6691 | 0.6691 | 3.35% | 6.30 MB |  | 100.0% | 594.4
+  variable-latency | least_connections | thread_pool | 3 | 98.93 | 27.24 | 142.83 | 161.47 | 0.00% | 0.6129 | 0.6129 | 2.13% | 5.66 MB |  | 100.0% | 567.7
+  variable-latency | least_response_time | async | 3 | 99.48 | 37.43 | 138.22 | 183.04 | 0.00% | 0.4135 | 0.4135 | 2.30% | 6.19 MB |  | 99.3% | 595.1
+  variable-latency | least_response_time | thread_pool | 3 | 99.84 | 27.09 | 27.81 | 142.57 | 0.00% | 0.3451 | 0.3451 | 2.20% | 5.71 MB |  | 99.4% | 573.1
+  variable-latency | round_robin | async | 3 | 84.61 | 110.15 | 1568.98 | 1776.47 | 0.00% | 1.0000 | 1.0000 | 2.21% | 7.40 MB |  | 67.4% | 575.0
+  variable-latency | round_robin | thread_pool | 3 | 84.61 | 588.33 | 1009.26 | 1024.27 | 0.00% | 1.0000 | 1.0000 | 4.03% | 5.89 MB |  | 17.8% | 719515.7
+  variable-latency | weighted_round_robin | async | 3 | 84.50 | 111.83 | 1581.73 | 1790.63 | 0.00% | 1.0000 | 1.0000 | 3.89% | 7.21 MB |  | 67.0% | 595.7
+  variable-latency | weighted_round_robin | thread_pool | 3 | 84.56 | 588.22 | 1009.69 | 1027.72 | 0.00% | 1.0000 | 1.0000 | 4.08% | 5.86 MB |  | 17.5% | 719296.8
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    variable-latency | round_robin | thread_pool | backend=latency-fast | reqs=None | share=None
+    variable-latency | round_robin | thread_pool | backend=latency-slow | reqs=None | share=None
+    variable-latency | round_robin | thread_pool | backend=latency-variable | reqs=None | share=None
+    variable-latency | round_robin | thread_pool | backend=latency-fast | reqs=None | share=None
+    variable-latency | round_robin | thread_pool | backend=latency-slow | reqs=None | share=None
+    variable-latency | round_robin | thread_pool | backend=latency-variable | reqs=None | share=None
+    ... and 66 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: variable-latency-12.toml | RESULTS: variable-latency-12-1790268539415
+--------------------------------------------------------------------------------
+Name: variable-latency-12
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: variable-latency-12
+  Description: Four replicas of each fast, seeded-variable, and slow latency class.
+  SLO Target: 200 ms
+  Server Config: ../server/config/fixtures/variable-latency-12.toml
+  Server Backends Configured: 0
+  Workload: id=steady-reads, method=GET, path=/experiment, requests=1800, rps=180.0, concurrency=96, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  variable-latency-12 | least_connections | async | 5 | 177.64 | 46.68 | 162.48 | 179.32 | 0.00% | 0.6421 | 0.6421 | 5.69% | 6.72 MB |  | 99.9% | 569.9
+  variable-latency-12 | least_connections | thread_pool | 5 | 177.94 | 26.99 | 142.27 | 165.73 | 0.00% | 0.5377 | 0.5377 | 3.45% | 5.76 MB |  | 100.0% | 545.4
+  variable-latency-12 | least_response_time | async | 5 | 178.54 | 51.93 | 150.30 | 265.60 | 0.00% | 0.4576 | 0.4576 | 5.57% | 6.74 MB |  | 98.7% | 569.8
+  variable-latency-12 | least_response_time | thread_pool | 5 | 178.46 | 46.73 | 141.69 | 223.67 | 0.00% | 0.4420 | 0.4420 | 3.32% | 5.97 MB |  | 98.7% | 561.6
+  variable-latency-12 | round_robin | async | 5 | 85.11 | 176.21 | 3233.11 | 3242.98 | 0.00% | 1.0000 | 1.0000 | 5.97% | 8.05 MB |  | 51.3% | 7349866.8
+  variable-latency-12 | round_robin | thread_pool | 5 | 85.13 | 1030.30 | 1388.66 | 1400.70 | 0.00% | 1.0000 | 1.0000 | 7.32% | 6.01 MB |  | 2.3% | 9246522.3
+  variable-latency-12 | weighted_round_robin | async | 5 | 85.27 | 170.33 | 3233.95 | 3252.26 | 0.00% | 1.0000 | 1.0000 | 6.95% | 7.80 MB |  | 51.6% | 7399508.0
+  variable-latency-12 | weighted_round_robin | thread_pool | 5 | 85.29 | 1009.61 | 1401.95 | 1406.98 | 0.00% | 1.0000 | 1.0000 | 7.92% | 6.03 MB |  | 2.0% | 9330685.7
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    variable-latency-12 | least_response_time | thread_pool | backend=latency12-fast-1 | reqs=None | share=None
+    variable-latency-12 | least_response_time | thread_pool | backend=latency12-fast-2 | reqs=None | share=None
+    variable-latency-12 | least_response_time | thread_pool | backend=latency12-fast-3 | reqs=None | share=None
+    variable-latency-12 | least_response_time | thread_pool | backend=latency12-fast-4 | reqs=None | share=None
+    variable-latency-12 | least_response_time | thread_pool | backend=latency12-slow-1 | reqs=None | share=None
+    variable-latency-12 | least_response_time | thread_pool | backend=latency12-slow-2 | reqs=None | share=None
+    ... and 474 more backend records
+
+
+################################################################################
+PAIR 5: saturation-sweep.toml & saturation-sweep-12.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: saturation-sweep.toml | RESULTS: saturation-sweep-1790270030023
+--------------------------------------------------------------------------------
+Name: saturation-sweep
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: saturation-light
+  Description: Independent 60 requests/s load level on identical backends; fixed concurrency 128 and ten seconds of planned arrivals.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=600, rps=60.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+  Scenario ID: saturation-medium
+  Description: Independent 180 requests/s load level on identical backends; fixed concurrency 128 and ten seconds of planned arrivals.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=1800, rps=180.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+  Scenario ID: saturation-overload
+  Description: Independent 360 requests/s load level on identical backends; fixed concurrency 128 and ten seconds of planned arrivals.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=3600, rps=360.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (24 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  saturation-light | least_connections | async | 3 | 59.69 | 60.57 | 83.61 | 89.34 | 0.00% | 0.9413 | 0.9413 | 1.20% | 5.98 MB |  | 99.7% | 623.4
+  saturation-light | least_connections | thread_pool | 3 | 59.78 | 52.26 | 53.10 | 54.33 | 0.00% | 0.8895 | 0.8895 | 0.57% | 5.63 MB |  | 100.0% | 621.5
+  saturation-light | least_response_time | async | 3 | 59.73 | 59.62 | 83.15 | 88.45 | 0.00% | 0.9971 | 0.9971 | 2.14% | 6.07 MB |  | 99.7% | 620.0
+  saturation-light | least_response_time | thread_pool | 3 | 59.79 | 52.26 | 54.16 | 55.66 | 0.00% | 0.9904 | 0.9904 | 2.25% | 5.64 MB |  | 100.0% | 611.4
+  saturation-light | round_robin | async | 3 | 59.77 | 60.51 | 82.47 | 85.46 | 0.00% | 1.0000 | 1.0000 | 2.51% | 5.99 MB |  | 99.8% | 609.5
+  saturation-light | round_robin | thread_pool | 3 | 59.79 | 52.26 | 53.47 | 54.67 | 0.00% | 1.0000 | 1.0000 | 1.15% | 5.64 MB |  | 100.0% | 612.7
+  saturation-light | weighted_round_robin | async | 3 | 59.72 | 59.21 | 83.02 | 88.99 | 0.00% | 1.0000 | 1.0000 | 2.55% | 5.91 MB |  | 99.8% | 616.4
+  saturation-light | weighted_round_robin | thread_pool | 3 | 59.79 | 52.24 | 53.14 | 54.40 | 0.00% | 1.0000 | 1.0000 | 1.68% | 5.67 MB |  | 100.0% | 612.1
+  saturation-medium | least_connections | async | 3 | 179.16 | 61.96 | 81.13 | 89.21 | 0.00% | 0.9938 | 0.9938 | 5.06% | 6.62 MB |  | 99.9% | 588.7
+  saturation-medium | least_connections | thread_pool | 3 | 179.17 | 51.95 | 52.43 | 53.88 | 0.00% | 0.9809 | 0.9809 | 3.99% | 5.73 MB |  | 100.0% | 555.4
+  saturation-medium | least_response_time | async | 3 | 179.15 | 61.59 | 81.39 | 89.03 | 0.00% | 0.9999 | 0.9999 | 5.55% | 6.66 MB |  | 100.0% | 579.4
+  saturation-medium | least_response_time | thread_pool | 3 | 179.18 | 51.97 | 52.70 | 54.51 | 0.00% | 0.9996 | 0.9996 | 3.53% | 5.72 MB |  | 100.0% | 561.3
+  saturation-medium | round_robin | async | 3 | 179.18 | 61.89 | 81.50 | 88.80 | 0.00% | 1.0000 | 1.0000 | 6.51% | 6.62 MB |  | 99.9% | 581.0
+  saturation-medium | round_robin | thread_pool | 3 | 179.18 | 51.98 | 52.52 | 53.42 | 0.00% | 1.0000 | 1.0000 | 4.15% | 5.73 MB |  | 100.0% | 555.7
+  saturation-medium | weighted_round_robin | async | 3 | 178.97 | 58.11 | 78.54 | 87.46 | 0.00% | 1.0000 | 1.0000 | 5.81% | 6.58 MB |  | 99.9% | 565.4
+  saturation-medium | weighted_round_robin | thread_pool | 3 | 179.17 | 51.97 | 52.59 | 57.00 | 0.00% | 1.0000 | 1.0000 | 3.69% | 5.73 MB |  | 100.0% | 552.7
+  saturation-overload | least_connections | async | 3 | 237.30 | 536.60 | 554.23 | 558.22 | 0.00% | 1.0000 | 1.0000 | 11.97% | 9.04 MB |  | 1.0% | 4370304.4
+  saturation-overload | least_connections | thread_pool | 3 | 237.33 | 540.62 | 553.85 | 557.98 | 0.00% | 1.0000 | 1.0000 | 11.19% | 6.23 MB |  | 1.0% | 4367054.1
+  saturation-overload | least_response_time | async | 3 | 237.16 | 535.92 | 554.63 | 561.47 | 0.00% | 1.0000 | 1.0000 | 13.79% | 8.94 MB |  | 1.0% | 4371727.5
+  saturation-overload | least_response_time | thread_pool | 3 | 237.18 | 540.54 | 553.21 | 561.13 | 0.00% | 1.0000 | 1.0000 | 12.39% | 6.22 MB |  | 1.1% | 4377654.0
+  saturation-overload | round_robin | async | 3 | 237.54 | 534.90 | 552.77 | 556.89 | 0.00% | 1.0000 | 1.0000 | 12.99% | 8.97 MB |  | 0.9% | 4367681.3
+  saturation-overload | round_robin | thread_pool | 3 | 237.59 | 541.09 | 550.60 | 552.39 | 0.00% | 1.0000 | 1.0000 | 10.38% | 6.22 MB |  | 1.0% | 4366031.3
+  saturation-overload | weighted_round_robin | async | 3 | 237.70 | 538.59 | 551.20 | 554.66 | 0.00% | 1.0000 | 1.0000 | 11.44% | 9.04 MB |  | 1.0% | 4361167.6
+  saturation-overload | weighted_round_robin | thread_pool | 3 | 237.66 | 538.83 | 551.08 | 553.05 | 0.00% | 1.0000 | 1.0000 | 10.51% | 6.22 MB |  | 1.0% | 4361970.3
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    saturation-light | round_robin | thread_pool | backend=equal-1 | reqs=None | share=None
+    saturation-light | round_robin | thread_pool | backend=equal-2 | reqs=None | share=None
+    saturation-light | round_robin | thread_pool | backend=equal-3 | reqs=None | share=None
+    saturation-light | round_robin | thread_pool | backend=equal-1 | reqs=None | share=None
+    saturation-light | round_robin | thread_pool | backend=equal-2 | reqs=None | share=None
+    saturation-light | round_robin | thread_pool | backend=equal-3 | reqs=None | share=None
+    ... and 210 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: saturation-sweep-12.toml | RESULTS: saturation-sweep-12-1790271646860
+--------------------------------------------------------------------------------
+Name: saturation-sweep-12
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: saturation-light
+  Description: Low offered load against the twelve-backend equal-capacity pool.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity-12.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=600, rps=60.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+  Scenario ID: saturation-medium
+  Description: Medium offered load against the twelve-backend equal-capacity pool.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity-12.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=1800, rps=180.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+  Scenario ID: saturation-overload
+  Description: Overload sweep against the twelve-backend equal-capacity pool.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity-12.toml
+  Server Backends Configured: 0
+  Workload: id=paced-reads, method=GET, path=/experiment, requests=3600, rps=360.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (24 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  saturation-light | least_connections | async | 5 | 59.73 | 57.17 | 81.74 | 86.61 | 0.00% | 0.4027 | 0.4027 | 2.22% | 6.05 MB |  | 99.8% | 611.6
+  saturation-light | least_connections | thread_pool | 5 | 59.79 | 52.29 | 53.53 | 55.72 | 0.00% | 0.3340 | 0.3340 | 1.38% | 5.68 MB |  | 100.0% | 610.5
+  saturation-light | least_response_time | async | 5 | 59.75 | 57.19 | 83.11 | 86.06 | 0.00% | 0.8659 | 0.8659 | 2.76% | 6.03 MB |  | 99.8% | 605.8
+  saturation-light | least_response_time | thread_pool | 5 | 59.79 | 52.25 | 52.84 | 54.43 | 0.00% | 0.8991 | 0.8991 | 1.23% | 5.67 MB |  | 100.0% | 613.5
+  saturation-light | round_robin | async | 5 | 59.76 | 60.14 | 83.29 | 91.03 | 0.00% | 1.0000 | 1.0000 | 2.13% | 6.02 MB |  | 99.6% | 610.1
+  saturation-light | round_robin | thread_pool | 5 | 59.79 | 52.27 | 53.18 | 54.36 | 0.00% | 1.0000 | 1.0000 | 1.44% | 5.66 MB |  | 100.0% | 616.2
+  saturation-light | weighted_round_robin | async | 5 | 59.76 | 59.59 | 83.20 | 89.16 | 0.00% | 1.0000 | 1.0000 | 2.22% | 6.02 MB |  | 99.8% | 612.7
+  saturation-light | weighted_round_robin | thread_pool | 5 | 59.78 | 52.28 | 53.48 | 56.87 | 0.00% | 1.0000 | 1.0000 | 1.73% | 5.66 MB |  | 100.0% | 616.9
+  saturation-medium | least_connections | async | 5 | 178.82 | 62.83 | 88.84 | 108.73 | 0.00% | 0.9803 | 0.9803 | 6.17% | 6.69 MB |  | 97.9% | 578.2
+  saturation-medium | least_connections | thread_pool | 5 | 179.17 | 51.95 | 52.45 | 54.78 | 0.00% | 0.8370 | 0.8370 | 3.61% | 5.73 MB |  | 100.0% | 552.2
+  saturation-medium | least_response_time | async | 5 | 178.98 | 61.85 | 85.75 | 101.79 | 0.00% | 0.9993 | 0.9993 | 6.47% | 6.60 MB |  | 98.9% | 572.2
+  saturation-medium | least_response_time | thread_pool | 5 | 179.17 | 51.94 | 52.59 | 57.88 | 0.00% | 0.9126 | 0.9126 | 3.92% | 5.81 MB |  | 100.0% | 552.8
+  saturation-medium | round_robin | async | 5 | 179.03 | 61.41 | 81.54 | 89.04 | 0.00% | 1.0000 | 1.0000 | 6.66% | 6.73 MB |  | 100.0% | 575.2
+  saturation-medium | round_robin | thread_pool | 5 | 179.17 | 51.95 | 52.47 | 54.92 | 0.00% | 1.0000 | 1.0000 | 3.02% | 5.76 MB |  | 100.0% | 554.6
+  saturation-medium | weighted_round_robin | async | 5 | 179.04 | 60.57 | 80.28 | 88.34 | 0.00% | 1.0000 | 1.0000 | 5.94% | 6.65 MB |  | 100.0% | 572.6
+  saturation-medium | weighted_round_robin | thread_pool | 5 | 179.16 | 51.95 | 52.47 | 55.36 | 0.00% | 1.0000 | 1.0000 | 3.24% | 5.78 MB |  | 100.0% | 553.6
+  saturation-overload | least_connections | async | 5 | 237.32 | 553.24 | 558.33 | 571.40 | 0.00% | 1.0000 | 1.0000 | 12.86% | 8.85 MB |  | 0.9% | 4366733.5
+  saturation-overload | least_connections | thread_pool | 5 | 232.10 | 535.41 | 594.17 | 602.61 | 0.00% | 0.9997 | 0.9997 | 10.26% | 6.25 MB |  | 1.1% | 4666623.7
+  saturation-overload | least_response_time | async | 5 | 237.32 | 552.02 | 558.66 | 572.58 | 0.00% | 1.0000 | 1.0000 | 12.00% | 9.10 MB |  | 1.0% | 4360649.7
+  saturation-overload | least_response_time | thread_pool | 5 | 231.99 | 545.73 | 593.47 | 607.36 | 0.00% | 1.0000 | 1.0000 | 11.49% | 6.25 MB |  | 1.0% | 4675494.3
+  saturation-overload | round_robin | async | 5 | 237.64 | 538.33 | 553.12 | 559.52 | 0.00% | 1.0000 | 1.0000 | 10.80% | 8.96 MB |  | 1.0% | 4361453.2
+  saturation-overload | round_robin | thread_pool | 5 | 237.60 | 538.86 | 550.64 | 552.74 | 0.00% | 1.0000 | 1.0000 | 10.99% | 6.27 MB |  | 1.0% | 4363876.9
+  saturation-overload | weighted_round_robin | async | 5 | 237.66 | 537.67 | 551.46 | 558.40 | 0.00% | 1.0000 | 1.0000 | 11.04% | 8.89 MB |  | 0.9% | 4364846.9
+  saturation-overload | weighted_round_robin | thread_pool | 5 | 237.69 | 541.03 | 550.44 | 552.26 | 0.00% | 1.0000 | 1.0000 | 10.76% | 6.22 MB |  | 1.0% | 4363367.0
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    saturation-light | weighted_round_robin | thread_pool | backend=equal12-1 | reqs=None | share=None
+    saturation-light | weighted_round_robin | thread_pool | backend=equal12-10 | reqs=None | share=None
+    saturation-light | weighted_round_robin | thread_pool | backend=equal12-11 | reqs=None | share=None
+    saturation-light | weighted_round_robin | thread_pool | backend=equal12-12 | reqs=None | share=None
+    saturation-light | weighted_round_robin | thread_pool | backend=equal12-2 | reqs=None | share=None
+    saturation-light | weighted_round_robin | thread_pool | backend=equal12-3 | reqs=None | share=None
+    ... and 1434 more backend records
+
+
+################################################################################
+PAIR 6: burst-load.toml & burst-load-12.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: burst-load.toml | RESULTS: burst-load-1790275158809
+--------------------------------------------------------------------------------
+Name: burst-load
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: burst-load
+  Description: A 60 requests/s background for 20 seconds plus 300 requests/s during seconds 6-10; observe queue growth and settling after the burst.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity.toml
+  Server Backends Configured: 0
+  Workload: id=background-reads, method=GET, path=/experiment, requests=1200, rps=60.0, concurrency=16, jitter_ms=2, timeout_ms=10000
+  Workload: id=burst-reads, method=GET, path=/experiment, requests=1200, rps=300.0, concurrency=96, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  burst-load | least_connections | async | 3 | 119.79 | 352.04 | 492.56 | 503.50 | 0.00% | 0.9919 | 0.9919 | 5.91% | 8.87 MB |  | 41.9% | 1513624.3
+  burst-load | least_connections | thread_pool | 3 | 119.79 | 344.03 | 485.90 | 494.65 | 0.00% | 0.9864 | 0.9864 | 3.75% | 6.20 MB |  | 42.4% | 1482356.5
+  burst-load | least_response_time | async | 3 | 119.76 | 346.46 | 486.26 | 496.31 | 0.00% | 1.0000 | 1.0000 | 4.82% | 8.38 MB |  | 42.1% | 1495631.3
+  burst-load | least_response_time | thread_pool | 3 | 119.80 | 343.42 | 484.90 | 493.13 | 0.00% | 0.9988 | 0.9988 | 4.07% | 6.13 MB |  | 42.4% | 1487218.9
+  burst-load | round_robin | async | 3 | 119.73 | 350.03 | 485.78 | 493.07 | 0.00% | 1.0000 | 1.0000 | 5.13% | 8.34 MB |  | 42.0% | 1494208.9
+  burst-load | round_robin | thread_pool | 3 | 119.79 | 341.36 | 482.38 | 487.18 | 0.00% | 1.0000 | 1.0000 | 3.88% | 6.11 MB |  | 42.2% | 1487873.0
+  burst-load | weighted_round_robin | async | 3 | 119.76 | 354.52 | 482.05 | 488.26 | 0.00% | 1.0000 | 1.0000 | 6.46% | 8.50 MB |  | 42.0% | 1498634.1
+  burst-load | weighted_round_robin | thread_pool | 3 | 119.78 | 342.13 | 483.25 | 489.31 | 0.00% | 1.0000 | 1.0000 | 4.58% | 6.18 MB |  | 42.2% | 1490726.9
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    burst-load | round_robin | thread_pool | backend=equal-1 | reqs=None | share=None
+    burst-load | round_robin | thread_pool | backend=equal-2 | reqs=None | share=None
+    burst-load | round_robin | thread_pool | backend=equal-3 | reqs=None | share=None
+    burst-load | round_robin | thread_pool | backend=equal-1 | reqs=None | share=None
+    burst-load | round_robin | thread_pool | backend=equal-2 | reqs=None | share=None
+    burst-load | round_robin | thread_pool | backend=equal-3 | reqs=None | share=None
+    ... and 66 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: burst-load-12.toml | RESULTS: burst-load-12-1790276005969
+--------------------------------------------------------------------------------
+Name: burst-load-12
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: burst-load-12
+  Description: Background traffic with a transient burst and queue-draining interval on twelve equal backends.
+  SLO Target: 100 ms
+  Server Config: ../server/config/fixtures/equal-capacity-12.toml
+  Server Backends Configured: 0
+  Workload: id=background-reads, method=GET, path=/experiment, requests=1200, rps=60.0, concurrency=24, jitter_ms=2, timeout_ms=10000
+  Workload: id=burst-reads, method=GET, path=/experiment, requests=1200, rps=300.0, concurrency=128, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (8 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  burst-load-12 | least_connections | async | 5 | 119.76 | 398.55 | 655.93 | 666.76 | 0.00% | 0.8588 | 0.8588 | 5.00% | 9.34 MB |  | 35.5% | 1356041.2
+  burst-load-12 | least_connections | thread_pool | 5 | 119.79 | 399.58 | 685.46 | 692.44 | 0.00% | 0.8178 | 0.8178 | 4.05% | 6.12 MB |  | 38.7% | 1442738.7
+  burst-load-12 | least_response_time | async | 5 | 119.72 | 400.87 | 655.29 | 665.04 | 0.00% | 0.9585 | 0.9585 | 5.41% | 9.04 MB |  | 35.3% | 1358702.2
+  burst-load-12 | least_response_time | thread_pool | 5 | 119.79 | 397.86 | 678.84 | 705.07 | 0.00% | 0.9407 | 0.9407 | 4.64% | 6.21 MB |  | 38.1% | 1452613.5
+  burst-load-12 | round_robin | async | 5 | 119.76 | 393.56 | 649.48 | 654.86 | 0.00% | 1.0000 | 1.0000 | 4.47% | 9.28 MB |  | 36.2% | 1353094.9
+  burst-load-12 | round_robin | thread_pool | 5 | 119.79 | 385.28 | 645.47 | 649.14 | 0.00% | 1.0000 | 1.0000 | 4.66% | 6.25 MB |  | 35.4% | 1347595.3
+  burst-load-12 | weighted_round_robin | async | 5 | 119.75 | 392.60 | 651.40 | 655.43 | 0.00% | 1.0000 | 1.0000 | 5.63% | 9.25 MB |  | 35.8% | 1354745.7
+  burst-load-12 | weighted_round_robin | thread_pool | 5 | 119.79 | 381.55 | 647.39 | 650.40 | 0.00% | 1.0000 | 1.0000 | 4.13% | 6.24 MB |  | 35.5% | 1349051.2
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    burst-load-12 | round_robin | thread_pool | backend=equal12-1 | reqs=None | share=None
+    burst-load-12 | round_robin | thread_pool | backend=equal12-10 | reqs=None | share=None
+    burst-load-12 | round_robin | thread_pool | backend=equal12-11 | reqs=None | share=None
+    burst-load-12 | round_robin | thread_pool | backend=equal12-12 | reqs=None | share=None
+    burst-load-12 | round_robin | thread_pool | backend=equal12-2 | reqs=None | share=None
+    burst-load-12 | round_robin | thread_pool | backend=equal12-3 | reqs=None | share=None
+    ... and 474 more backend records
+
+
+################################################################################
+PAIR 7: retry-behavior.toml & retry-behavior-12.toml
+################################################################################
+--------------------------------------------------------------------------------
+EXPERIMENT: retry-behavior.toml | RESULTS: retry-behavior-1790278224690
+--------------------------------------------------------------------------------
+Name: retry-behavior
+Repetitions: 3
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: retry-get
+  Description: GET workload against healthy, 35%-disconnecting, and always-disconnecting backends; compare permitted retry attempts and end-to-end success. No containers are stopped.
+  SLO Target: 200 ms
+  Server Config: ../server/config/fixtures/failure.toml
+  Server Backends Configured: 0
+  Workload: id=idempotent-reads, method=GET, path=/experiment, requests=400, rps=40.0, concurrency=16, jitter_ms=2, timeout_ms=10000
+  Scenario ID: retry-post
+  Description: POST workload against healthy, 35%-disconnecting, and always-disconnecting backends; compare permitted retry attempts and end-to-end success. No containers are stopped.
+  SLO Target: None ms
+  Server Config: ../server/config/fixtures/failure.toml
+  Server Backends Configured: 0
+  Workload: id=non-idempotent-writes, method=POST, path=/experiment, requests=400, rps=40.0, concurrency=16, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (16 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  retry-get | least_connections | async | 3 | 39.83 | 79.07 | 158.46 | 187.18 | 0.00% | 0.9071 | 0.9071 | 2.03% | 5.91 MB |  | 99.9% | 605.8
+  retry-get | least_connections | thread_pool | 3 | 39.85 | 83.67 | 138.29 | 162.09 | 0.00% | 0.9161 | 0.9161 | 2.14% | 5.70 MB |  | 100.0% | 595.2
+  retry-get | least_response_time | async | 3 | 39.90 | 46.63 | 71.26 | 80.88 | 0.00% | 0.3406 | 0.3406 | 1.62% | 5.78 MB |  | 100.0% | 630.8
+  retry-get | least_response_time | thread_pool | 3 | 39.93 | 42.39 | 45.24 | 55.66 | 0.00% | 0.3400 | 0.3400 | 0.68% | 5.61 MB |  | 100.0% | 570.4
+  retry-get | round_robin | async | 3 | 39.78 | 71.65 | 159.36 | 180.16 | 0.00% | 0.9255 | 0.9255 | 3.17% | 5.88 MB |  | 99.8% | 602.0
+  retry-get | round_robin | thread_pool | 3 | 39.71 | 55.65 | 138.06 | 161.64 | 0.00% | 0.8825 | 0.8825 | 1.71% | 5.63 MB |  | 100.0% | 585.5
+  retry-get | weighted_round_robin | async | 3 | 39.67 | 79.22 | 161.50 | 187.44 | 0.00% | 0.9545 | 0.9545 | 2.18% | 5.91 MB |  | 99.8% | 595.2
+  retry-get | weighted_round_robin | thread_pool | 3 | 39.66 | 66.74 | 146.99 | 160.12 | 0.00% | 0.9533 | 0.9533 | 1.56% | 5.61 MB |  | 100.0% | 587.5
+  retry-post | least_connections | async | 3 | 39.91 | 47.26 | 80.02 | 98.81 | 34.00% | 0.9302 | 0.9302 | 2.31% | 5.79 MB |  | 0.0% | 613.4
+  retry-post | least_connections | thread_pool | 3 | 39.93 | 42.58 | 74.86 | 80.92 | 29.92% | 0.8836 | 0.8836 | 0.94% | 5.67 MB |  | 0.0% | 598.8
+  retry-post | least_response_time | async | 3 | 39.91 | 45.58 | 67.43 | 74.34 | 0.50% | 0.3401 | 0.3401 | 3.51% | 5.75 MB |  | 0.0% | 612.9
+  retry-post | least_response_time | thread_pool | 3 | 39.93 | 42.38 | 44.16 | 44.95 | 0.50% | 0.3401 | 0.3401 | 1.41% | 5.65 MB |  | 0.0% | 575.4
+  retry-post | round_robin | async | 3 | 39.93 | 49.93 | 84.43 | 96.66 | 43.25% | 1.0000 | 1.0000 | 1.89% | 5.79 MB |  | 0.0% | 623.7
+  retry-post | round_robin | thread_pool | 3 | 39.93 | 43.54 | 76.25 | 81.29 | 43.25% | 1.0000 | 1.0000 | 1.89% | 5.62 MB |  | 0.0% | 606.9
+  retry-post | weighted_round_robin | async | 3 | 39.91 | 50.09 | 86.21 | 99.58 | 43.50% | 1.0000 | 1.0000 | 2.25% | 5.86 MB |  | 0.0% | 611.0
+  retry-post | weighted_round_robin | thread_pool | 3 | 39.93 | 42.70 | 75.49 | 80.63 | 43.50% | 1.0000 | 1.0000 | 1.26% | 5.64 MB |  | 0.0% | 595.8
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    retry-get | round_robin | thread_pool | backend=failure-always | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-flaky | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-healthy | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-always | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-flaky | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-healthy | reqs=None | share=None
+    ... and 138 more backend records
+
+
+--------------------------------------------------------------------------------
+EXPERIMENT: retry-behavior-12.toml | RESULTS: retry-behavior-12-1790279230866
+--------------------------------------------------------------------------------
+Name: retry-behavior-12
+Repetitions: 5
+Algorithms: ['round_robin', 'weighted_round_robin', 'least_connections', 'least_response_time']
+Runtimes: ['thread_pool', 'async']
+  Scenario ID: retry-get
+  Description: Idempotent GET retries across larger healthy, flaky, and failing cohorts.
+  SLO Target: 200 ms
+  Server Config: ../server/config/fixtures/failure-12.toml
+  Server Backends Configured: 0
+  Workload: id=retry-reads, method=GET, path=/experiment, requests=1200, rps=120.0, concurrency=32, jitter_ms=2, timeout_ms=10000
+  Scenario ID: retry-post
+  Description: Non-idempotent POST behavior across larger healthy, flaky, and failing cohorts.
+  SLO Target: 200 ms
+  Server Config: ../server/config/fixtures/failure-12.toml
+  Server Backends Configured: 0
+  Workload: id=retry-writes, method=POST, path=/experiment, requests=1200, rps=120.0, concurrency=32, jitter_ms=2, timeout_ms=10000
+
+  GROUP SUMMARY TABLE (16 entries):
+  scenario | algorithm | runtime | runs | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | error_rate (%) | fairness | weighted_fairness | cpu (%) | mem (MB) | recovery (ms) | slo_attainment (%) | scheduling_lag_p95 (us)
+  retry-get | least_connections | async | 5 | 119.05 | 68.06 | 167.27 | 195.68 | 5.35% | 0.9324 | 0.9324 | 5.73% | 6.72 MB |  | 94.1% | 581.5
+  retry-get | least_connections | thread_pool | 5 | 119.30 | 42.26 | 133.80 | 168.99 | 2.22% | 0.7226 | 0.7226 | 3.72% | 5.75 MB |  | 97.8% | 559.4
+  retry-get | least_response_time | async | 5 | 99.02 | 323.07 | 326.65 | 339.64 | 0.05% | 0.3535 | 0.3535 | 5.42% | 6.72 MB |  | 5.9% | 1694083.9
+  retry-get | least_response_time | thread_pool | 5 | 98.57 | 322.99 | 324.76 | 348.99 | 0.08% | 0.3452 | 0.3452 | 5.45% | 6.15 MB |  | 6.5% | 1748592.2
+  retry-get | round_robin | async | 5 | 115.12 | 123.78 | 455.69 | 620.51 | 5.98% | 0.9889 | 0.9889 | 5.79% | 6.90 MB |  | 69.4% | 569.7
+  retry-get | round_robin | thread_pool | 5 | 108.98 | 231.01 | 503.15 | 661.71 | 6.15% | 0.9908 | 0.9908 | 7.09% | 5.92 MB |  | 34.7% | 546624.4
+  retry-get | weighted_round_robin | async | 5 | 117.82 | 108.03 | 301.51 | 397.11 | 6.63% | 0.9982 | 0.9982 | 6.40% | 6.80 MB |  | 76.3% | 578.4
+  retry-get | weighted_round_robin | thread_pool | 5 | 117.87 | 96.49 | 304.00 | 404.38 | 6.35% | 0.9980 | 0.9980 | 6.67% | 5.91 MB |  | 78.6% | 552.4
+  retry-post | least_connections | async | 5 | 119.34 | 56.49 | 88.79 | 101.21 | 15.63% | 0.6602 | 0.6602 | 4.00% | 6.25 MB |  | 84.4% | 588.9
+  retry-post | least_connections | thread_pool | 5 | 119.43 | 42.23 | 75.35 | 81.69 | 9.88% | 0.5645 | 0.5645 | 2.72% | 5.76 MB |  | 90.1% | 568.1
+  retry-post | least_response_time | async | 5 | 100.34 | 322.92 | 325.53 | 336.50 | 1.48% | 0.3515 | 0.3515 | 5.82% | 6.72 MB |  | 9.3% | 1537360.6
+  retry-post | least_response_time | thread_pool | 5 | 99.18 | 322.92 | 323.93 | 333.11 | 0.93% | 0.3425 | 0.3425 | 5.45% | 6.06 MB |  | 9.0% | 1675813.0
+  retry-post | round_robin | async | 5 | 119.55 | 55.74 | 86.33 | 99.37 | 44.83% | 1.0000 | 1.0000 | 5.08% | 6.26 MB |  | 55.2% | 585.8
+  retry-post | round_robin | thread_pool | 5 | 119.60 | 42.26 | 75.14 | 81.60 | 44.83% | 1.0000 | 1.0000 | 3.24% | 5.73 MB |  | 55.2% | 568.6
+  retry-post | weighted_round_robin | async | 5 | 119.50 | 53.89 | 85.58 | 99.44 | 44.83% | 1.0000 | 1.0000 | 4.79% | 6.25 MB |  | 55.2% | 578.8
+  retry-post | weighted_round_robin | thread_pool | 5 | 119.60 | 42.28 | 75.20 | 81.54 | 44.83% | 1.0000 | 1.0000 | 3.65% | 5.77 MB |  | 55.2% | 561.4
+
+  RECOVERY CSV:
+    run_id,scenario,algorithm,runtime,action,target_backend_id,action_started_offset_ms,action_completed_offset_ms,first_success_offset_ms,time_to_first_success_ms,stable_success_offset_ms,time_to_stable_success_ms,stable_successes_required
+
+  BACKEND FAIRNESS SAMPLE:
+    retry-get | round_robin | thread_pool | backend=failure-always-1 | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-always-2 | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-always-3 | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-always-4 | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-flaky-1 | reqs=None | share=None
+    retry-get | round_robin | thread_pool | backend=failure-flaky-2 | reqs=None | share=None
+    ... and 954 more backend records
+

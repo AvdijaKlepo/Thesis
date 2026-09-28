@@ -19,6 +19,7 @@ version = "0.1.0"
 id = "equal-capacity"
 description = "Steady 60 requests/s baseline on three identical backends; compare allocation fairness and latency without deliberate saturation."
 server_config = "../server/config/fixtures/equal-capacity.toml"
+slo_target_ms=100
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.

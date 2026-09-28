@@ -4,8 +4,8 @@ name = "burst-load-12"
 seed = 20260927
 repetitions = 5
 output_directory = "../results"
-algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time", "adaptive_balancing", "adaptive_balancing_v2"]
-runtimes = ["async"]
+algorithms = ["round_robin", "weighted_round_robin", "least_connections", "least_response_time"]
+runtimes = ["thread_pool", "async"]
 paired_workload_seeds = true
 execution_order = "blocked_randomized"
 

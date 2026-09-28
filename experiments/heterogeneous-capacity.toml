@@ -19,6 +19,7 @@ version = "0.1.0"
 id = "heterogeneous-capacity"
 description = "Offer 160 requests/s to capacities 1:4:8 with matching weights; observe small-backend queueing and capacity-adjusted fairness."
 server_config = "../server/config/fixtures/heterogeneous.toml"
+slo_target_ms = 100
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.

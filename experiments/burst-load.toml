@@ -19,6 +19,7 @@ version = "0.1.0"
 id = "burst-load"
 description = "A 60 requests/s background for 20 seconds plus 300 requests/s during seconds 6-10; observe queue growth and settling after the burst."
 server_config = "../server/config/fixtures/equal-capacity.toml"
+slo_target_ms = 100
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.

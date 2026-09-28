@@ -1,0 +1,298 @@
+# Run from server/: cargo run --release --bin scenario-runner -- run ../experiments/failure-recovery-12.toml
+schema_version = 1
+name = "failure-recovery-12"
+seed = 20260950
+repetitions = 5
+output_directory = "../results"
+algorithms = [
+    "round_robin",
+    "weighted_round_robin",
+    "least_connections",
+    "least_response_time",
+]
+runtimes = ["thread_pool", "async"]
+paired_workload_seeds = true
+execution_order = "blocked_randomized"
+
+# This section only tells the external runner how to launch and reach the
+# server. The referenced TOML remains the server's operational configuration.
+[server]
+command = "target/release/server"
+args = ["--config", "{server_config}"]
+working_directory = "../server"
+startup_timeout_ms = 15000
+request_timeout_ms = 10000
+version = "0.1.0"
+
+# Everything below this point describes experimental actions and observations.
+[[scenarios]]
+id = "failure-recovery-12"
+description = "Stop and restore healthy backends during a paced workload across a 12-backend pool."
+server_config = "../server/config/fixtures/failure-12.toml"
+workload_seed_group = "failure-recovery-12"
+slo_target_ms = 100
+
+[[scenarios.setup]]
+command = "docker"
+args = [
+    "compose",
+    "-p",
+    "webserver-scaled-{scenario}",
+    "-f",
+    "compose.scaled-fixtures.yml",
+    "--profile",
+    "failure-12",
+    "up",
+    "--build",
+    "--force-recreate",
+    "--wait",
+    "--wait-timeout",
+    "60",
+    "failure-healthy-1",
+    "failure-healthy-2",
+    "failure-healthy-3",
+    "failure-healthy-4",
+    "failure-flaky-1",
+    "failure-flaky-2",
+    "failure-flaky-3",
+    "failure-flaky-4",
+    "failure-always-1",
+    "failure-always-2",
+    "failure-always-3",
+    "failure-always-4",
+]
+working_directory = ".."
+
+[[scenarios.teardown]]
+command = "docker"
+args = [
+    "compose",
+    "-p",
+    "webserver-scaled-{scenario}",
+    "-f",
+    "compose.scaled-fixtures.yml",
+    "--profile",
+    "failure-12",
+    "down",
+    "--timeout",
+    "0",
+]
+working_directory = ".."
+
+[[scenarios.workloads]]
+id = "paced-reads"
+requests = 1200
+concurrency = 32
+method = "GET"
+path = "/experiment"
+requests_per_second = 150.0
+jitter_ms = 2
+timeout_ms = 10000
+
+[[scenarios.analysis_windows]]
+id = "warmup"
+start_ms = 0
+end_ms = 2000
+
+[[scenarios.analysis_windows]]
+id = "outage"
+start_ms = 2000
+end_ms = 4500
+
+[[scenarios.analysis_windows]]
+id = "recovery"
+start_ms = 4500
+end_ms = 8000
+
+[[scenarios.failures]]
+id = "stop-healthy-backend"
+at_ms = 2000
+target_backend_id = "failure-healthy-1"
+
+[scenarios.failures.action]
+command = "docker"
+# An abrupt outage must finish before the independent restore action at 4.5 s.
+# Docker's default graceful-stop timeout can otherwise overlap that action.
+args = [
+    "compose",
+    "-p",
+    "webserver-scaled-{scenario}",
+    "-f",
+    "compose.scaled-fixtures.yml",
+    "stop",
+    "--timeout",
+    "0",
+    "failure-healthy-1",
+    "failure-healthy-2",
+    "failure-healthy-3",
+    "failure-healthy-4",
+]
+working_directory = ".."
+
+[[scenarios.failures]]
+id = "restore-healthy-backend"
+at_ms = 4500
+target_backend_id = "failure-healthy-1"
+
+[scenarios.failures.action]
+command = "docker"
+args = [
+    "compose",
+    "-p",
+    "webserver-scaled-{scenario}",
+    "-f",
+    "compose.scaled-fixtures.yml",
+    "start",
+    "--wait",
+    "--wait-timeout",
+    "30",
+    "failure-healthy-1",
+    "failure-healthy-2",
+    "failure-healthy-3",
+    "failure-healthy-4",
+]
+working_directory = ".."
+
+[[scenarios.collect]]
+id = "failure-healthy-1-config"
+address = "127.0.0.1:6601"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-1-metrics"
+address = "127.0.0.1:6601"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-2-config"
+address = "127.0.0.1:6602"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-2-metrics"
+address = "127.0.0.1:6602"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-3-config"
+address = "127.0.0.1:6603"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-3-metrics"
+address = "127.0.0.1:6603"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-4-config"
+address = "127.0.0.1:6604"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-healthy-4-metrics"
+address = "127.0.0.1:6604"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-1-config"
+address = "127.0.0.1:6605"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-1-metrics"
+address = "127.0.0.1:6605"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-2-config"
+address = "127.0.0.1:6606"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-2-metrics"
+address = "127.0.0.1:6606"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-3-config"
+address = "127.0.0.1:6607"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-3-metrics"
+address = "127.0.0.1:6607"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-4-config"
+address = "127.0.0.1:6608"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-flaky-4-metrics"
+address = "127.0.0.1:6608"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-1-config"
+address = "127.0.0.1:6609"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-1-metrics"
+address = "127.0.0.1:6609"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-2-config"
+address = "127.0.0.1:6610"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-2-metrics"
+address = "127.0.0.1:6610"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-3-config"
+address = "127.0.0.1:6611"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-3-metrics"
+address = "127.0.0.1:6611"
+path = "/metrics"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-4-config"
+address = "127.0.0.1:6612"
+path = "/config"
+phases = ["before", "after"]
+
+[[scenarios.collect]]
+id = "failure-always-4-metrics"
+address = "127.0.0.1:6612"
+path = "/metrics"
+phases = ["before", "after"]

@@ -19,6 +19,7 @@ version = "0.1.0"
 id = "saturation-light"
 description = "Independent 60 requests/s load level on identical backends; fixed concurrency 128 and ten seconds of planned arrivals."
 server_config = "../server/config/fixtures/equal-capacity.toml"
+slo_target_ms = 100
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.
@@ -90,6 +91,8 @@ phases = ["before", "after"]
 id = "saturation-medium"
 description = "Independent 180 requests/s load level on identical backends; fixed concurrency 128 and ten seconds of planned arrivals."
 server_config = "../server/config/fixtures/equal-capacity.toml"
+slo_target_ms = 100
+
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.
@@ -161,6 +164,7 @@ phases = ["before", "after"]
 id = "saturation-overload"
 description = "Independent 360 requests/s load level on identical backends; fixed concurrency 128 and ten seconds of planned arrivals."
 server_config = "../server/config/fixtures/equal-capacity.toml"
+slo_target_ms = 100
 
 # A dedicated Compose project and recreated containers reset fixture state per run.
 # Published ports are shared with the manual profiles: run only one experiment at a time.
